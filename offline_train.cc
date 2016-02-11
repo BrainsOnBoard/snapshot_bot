@@ -15,7 +15,9 @@ int main(int argc, char *argv[])
         }
     }
     
-    std::unique_ptr<ImageInput> imageInput{new ImageInputRaw(config)};
+    // Create image input
+    std::unique_ptr<ImageInput> imageInput = createImageInput(config);
+    
     InfoMax infomax(config, imageInput->getOutputSize());
     
     std::cout << "Training" << std::endl;
@@ -33,6 +35,6 @@ int main(int argc, char *argv[])
         }
     }
     
-    infomax.saveWeights((config.getOutputPath() / "weights.bin").str());
+    infomax.saveWeights((config.getOutputPath() / ("weights" + config.getTestingSuffix() + ".bin")).str());
     return EXIT_SUCCESS;
 }
