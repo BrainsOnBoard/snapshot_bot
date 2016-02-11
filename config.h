@@ -7,6 +7,7 @@
 // BoB robotics includes
 #include "net/connection.h"
 #include "third_party/path.h"
+#include "third_party/units.h"
 
 //------------------------------------------------------------------------
 // Config
@@ -15,9 +16,9 @@ class Config
 {
 public:
     Config() : m_UseHOG(false), m_Train(true), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
-        m_UnwrapRes(180, 50), m_MaskImageFilename("mask.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
+        m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_MaskImageFilename("mask.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
         m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort),
-        m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
+        m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
     {
     }
@@ -30,6 +31,8 @@ public:
     bool shouldSaveTestingDiagnostic() const{ return m_SaveTestingDiagnostic; }
     bool shouldStreamOutput() const{ return m_StreamOutput; }
 
+    units::angle::degree_t getMaxSnapshotRotateAngle() const{ return units::angle::degree_t(m_MaxSnapshotRotateDegrees); }
+    
     const filesystem::path &getOutputPath() const{ return m_OutputPath; }
 
     const cv::Size &getUnwrapRes() const{ return m_UnwrapRes; }
@@ -56,12 +59,14 @@ public:
     
     int getServerListenPort() const{ return m_ServerListenPort; }
     
-    float getTurnSpeed(float angleDifference) const
+    float getTurnSpeed(units::angle::degree_t angleDifference) const
     {
+        const auto absoluteAngleDifference = units::math::fabs(angleDifference);
+        
         // Loop through turn speed thresholds in descending order
         for(auto i = m_TurnThresholds.crbegin(); i != m_TurnThresholds.crend(); ++i) {
             // If the angle difference passes this threshold, return corresponding speed
-            if(angleDifference >= i->first) {
+            if(absoluteAngleDifference >= i->first) {
                 return i->second;
             }
         }
@@ -79,6 +84,7 @@ public:
         fs << "shouldSaveTestingDiagnostic" << shouldSaveTestingDiagnostic();
         fs << "shouldStreamOutput" << shouldStreamOutput();
         fs << "outputPath" << getOutputPath().str();
+        fs << "maxSnapshotRotateDegrees" << getMaxSnapshotRotateAngle().value();
         fs << "unwrapRes" << getUnwrapRes();
         fs << "maskImageFilename" << getMaskImageFilename();
         fs << "numHOGOrientations" << getNumHOGOrientations();
@@ -88,7 +94,7 @@ public:
         fs << "serverListenPort" << getServerListenPort();
         fs << "turnThresholds" << "[";
         for(const auto &t : m_TurnThresholds) {
-            fs << "[" << t.first << t.second << "]";
+            fs << "[" << t.first.value() << t.second << "]";
         }
         fs << "]";
         
@@ -124,6 +130,7 @@ public:
         cv::read(node["outputPath"], outputPath, m_OutputPath.str());
         m_OutputPath = (std::string)outputPath;
 
+        cv::read(node["maxSnapshotRotateDegrees"], m_MaxSnapshotRotateDegrees, m_MaxSnapshotRotateDegrees);
         cv::read(node["unwrapRes"], m_UnwrapRes, m_UnwrapRes);
 
         cv::String maskImageFilename;
@@ -140,7 +147,7 @@ public:
             m_TurnThresholds.clear();
             for(const auto &t : node["turnThresholds"]) {
                 assert(t.isSeq() && t.size() == 2);
-                m_TurnThresholds.emplace((float)t[0], (float)t[1]);
+                m_TurnThresholds.emplace(units::angle::degree_t((double)t[0]), (float)t[1]);
             }
         }
         
@@ -148,16 +155,27 @@ public:
         if(viconTracking.isMap()) {
             m_UseViconTracking = true;
             viconTracking["port"] >> m_ViconTrackingPort;
-            viconTracking["objectName"] >> m_ViconTrackingObjectName;
+            
+            cv::String viconTrackingObjectName;
+            viconTracking["objectName"] >> viconTrackingObjectName;
+            m_ViconTrackingObjectName = (std::string)viconTrackingObjectName;
         }
         
         const auto &viconCaptureControl = node["viconCaptureControl"];
         if(viconCaptureControl.isMap()) {
             m_UseViconCaptureControl = true;
-            viconCaptureControl["name"] >> m_ViconCaptureControlName;
-            viconCaptureControl["host"] >> m_ViconCaptureControlHost;
+            
+            cv::String viconCaptureControlName;
+            cv::String viconCaptureControlHost;
+            cv::String viconCaptureControlPath;
+            viconCaptureControl["name"] >> viconCaptureControlName;
+            viconCaptureControl["host"] >> viconCaptureControlHost;
             viconCaptureControl["port"] >> m_ViconCaptureControlPort;
-            viconCaptureControl["path"] >> m_ViconCaptureControlPath;
+            viconCaptureControl["path"] >> viconCaptureControlPath;
+            
+            m_ViconCaptureControlName = (std::string)viconCaptureControlName;
+            m_ViconCaptureControlHost = (std::string)viconCaptureControlHost;
+            m_ViconCaptureControlPath = (std::string)viconCaptureControlPath;
         }
     
     }
@@ -168,6 +186,7 @@ private:
     //------------------------------------------------------------------------
     // Should we use HOG features or raw images?
     bool m_UseHOG;
+    
     
     // Should we start in training mode or use existing data?
     bool m_Train;
@@ -181,6 +200,9 @@ private:
     // Path to store snapshots etc
     filesystem::path m_OutputPath;
 
+    // Maximum (absolute) angle snapshots will be rotated by
+    double m_MaxSnapshotRotateDegrees;
+    
     // What resolution to unwrap panoramas to?
     cv::Size m_UnwrapRes;
 
@@ -201,7 +223,7 @@ private:
     int m_ServerListenPort;
     
     // RDF angle difference thresholds that trigger different turning speeds
-    std::map<float, float> m_TurnThresholds;
+    std::map<units::angle::degree_t, float> m_TurnThresholds;
     
     // Vicon tracking settings
     bool m_UseViconTracking;
