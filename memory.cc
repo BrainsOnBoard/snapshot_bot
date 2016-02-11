@@ -138,6 +138,7 @@ InfoMax::InfoMax(const Config &config, const cv::Size &inputSize)
 :   m_InfoMax(createInfoMax(config, inputSize))
 {
     BOB_ASSERT(config.getMaskImageFilename().empty());
+    std::cout << "\tUsing " << Eigen::nbThreads() << " threads" << std::endl;
 }
 //------------------------------------------------------------------------
 void InfoMax::test(const cv::Mat &snapshot)
