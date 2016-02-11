@@ -23,7 +23,7 @@ class Config
 public:
     Config() : m_UseHOG(false), m_UseBinaryImage(false), m_UseTrueBinaryImage(false), m_UseHorizonVector(false), m_Train(true), m_UseInfoMax(false), m_UseMBArdin(false), m_UseMBHOG(false),
         m_SaveTestingDiagnostic(false), m_StreamOutput(false), m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
-        m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TrainInterval(100.0), m_MotorCommandInterval(500.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort), m_MoveSpeed(0.25),
+        m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TrainInterval(100.0), m_MotorCommandInterval(500.0), m_MotorTurnCommandInterval(500.0),m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort), m_MoveSpeed(0.25),
         m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
     {
@@ -62,6 +62,7 @@ public:
     bool shouldAutoTrain() const{ return m_AutoTrain; }
     Milliseconds getTrainInterval() const{ return m_TrainInterval; }
     Milliseconds getMotorCommandInterval() const{ return m_MotorCommandInterval; }
+    Milliseconds getMotorTurnCommandInterval() const{ return m_MotorTurnCommandInterval; }
     
     bool shouldUseViconTracking() const{ return m_UseViconTracking; }
     int getViconTrackingPort() const{ return m_ViconTrackingPort; }
@@ -119,6 +120,7 @@ public:
         fs << "autoTrain" << shouldAutoTrain();
         fs << "trainInterval" << getTrainInterval().count();
         fs << "motorCommandInterval" << getMotorCommandInterval().count();
+        fs << "motorTurnCommandInterval" << getMotorTurnCommandInterval().count();
         fs << "serverListenPort" << getServerListenPort();
         fs << "moveSpeed" << getMoveSpeed();
         fs << "turnThresholds" << "[";
@@ -197,7 +199,9 @@ public:
         double motorCommandInterval;
         cv::read(node["motorCommandInterval"], motorCommandInterval, m_MotorCommandInterval.count());
         m_MotorCommandInterval = (Milliseconds)motorCommandInterval;
-        
+        cv::read(node["motorTurnCommandInterval"], motorCommandInterval, m_MotorTurnCommandInterval.count());
+        m_MotorTurnCommandInterval = (Milliseconds)motorCommandInterval;
+
         if(node["turnThresholds"].isSeq()) {
             m_TurnThresholds.clear();
             for(const auto &t : node["turnThresholds"]) {
@@ -297,13 +301,14 @@ private:
     // How many milliseconds do we move for before re-calculating IDF?
     Milliseconds m_TrainInterval;
     Milliseconds m_MotorCommandInterval;
-    
+    Milliseconds m_MotorTurnCommandInterval;
+
     // Listen port used for streaming etc
     int m_ServerListenPort;
     
     // How fast robot should move when heading to snapshot
     float m_MoveSpeed;
-    
+
     // RDF angle difference thresholds that trigger different turning speeds
     std::map<units::angle::degree_t, float> m_TurnThresholds;
     
