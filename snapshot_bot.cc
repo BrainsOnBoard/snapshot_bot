@@ -27,80 +27,17 @@ namespace Settings
 
     // How large should the deadzone be on the analogue joystick
     const float joystickDeadzone = 0.25f;
+
+    const float  threshold = 30.0f;
 }
 
 enum class State
 {
     Invalid,
+    Warmup,
     Training,
     ReturningToStart,
-    TestingFindSnapshot,
-    TestingOrientWithSnapshot,
-    TestingDriveHeading,
-};
-
-//------------------------------------------------------------------------
-// PID
-//------------------------------------------------------------------------
-class PID
-{
-public:
-    PID(float kp, float ki, float kd, float outMin, float outMax) 
-    :   m_Intergral(0.0f), m_KP(kp), m_KI(ki), m_KD(kd), m_OutMin(outMin), m_OutMax(outMax)
-    {
-    }
-
-    //------------------------------------------------------------------------
-    // Public API
-    //------------------------------------------------------------------------
-    // (Re-)initialise PID - use before output of PID is connected to plant
-    void initialise(float input, float output)
-    {
-        m_LastInput = input;
-        m_Intergral = output;
-        m_Intergral = std::min(m_OutMax, std::max(m_OutMin, m_Intergral));
-    }
-    
-    // Get output based on setpoint
-    float update(float setpoint, float input)
-    {
-        const float error = setpoint - input;
-        
-        // Update integral term and clamp
-        m_Intergral += (m_KI * error);
-        m_Intergral = std::min(m_OutMax, std::max(m_OutMin, m_Intergral));
-        
-        // Calculate derivative term
-        const float derivative = input - m_LastInput;
-        
-        // Calculate output and clamp
-        float output = (m_KP * error) + m_Intergral - (m_KD * derivative);
-        output = std::min(m_OutMax, std::max(m_OutMin, output));
-        
-        // Update last input
-        m_LastInput = input;
-        
-        return output;
-    }
-
-private:
-    //------------------------------------------------------------------------
-    // Members
-    //------------------------------------------------------------------------
-    // Last input (used for calculating derivative)
-    float m_LastInput;
-    
-    // Integral
-    float m_Intergral;
-    
-    // PID constants
-    float m_KP;
-    float m_KI;
-    float m_KD;
-    
-    // Output range
-    const float m_OutMin;
-    const float m_OutMax;
+    Testing,
 };
 
 //------------------------------------------------------------------------
@@ -137,7 +74,7 @@ public:
         return (m_Snapshots.size() - 1);
     }
     
-    std::tuple<float, size_t, float> findSnapshot(cv::Mat &image) const
+    std::tuple<float, size_t, float> findSnapshot(cv::Mat &image, size_t lastSnapshot) const
     {
         assert(image.cols == m_ScratchImage.cols);
         assert(image.rows == m_ScratchImage.rows);
@@ -153,6 +90,9 @@ public:
                 // Calculate difference
                 const float differenceSquared = calcSnapshotDifferenceSquared(image, s);
                 
+                if(s == lastSnapshot && differenceSquared > Settings::threshold) {
+                    continue;
+                }
                 // If this is an improvement - update
                 if(differenceSquared < minDifferenceSquared) {
                     minDifferenceSquared = differenceSquared;
@@ -177,45 +117,6 @@ public:
         return std::make_tuple(bestAngle, bestSnapshot, minDifferenceSquared);
     }
     
-    std::tuple<float, float> getSnapshotAngle(cv::Mat &image, size_t snapshot) const
-    {
-        assert(image.cols == m_ScratchImage.cols);
-        assert(image.rows == m_ScratchImage.rows);
-        assert(image.type() == CV_8UC1);
-        
-        // Scan across image columns
-        float minDifferenceSquared = std::numeric_limits<float>::max();
-        int bestCol = 0;
-        for(int i = 0; i < image.cols; i += scanStep) {
-            // Calculate difference
-            const float differenceSquared = calcSnapshotDifferenceSquared(image, snapshot);
-            
-            // If this is an improvement - update
-            if(differenceSquared < minDifferenceSquared) {
-                minDifferenceSquared = differenceSquared;
-                bestCol = i;
-            }
-            
-            // Roll image left by scanstep
-            rollImage(image);
-        }            
-        
-        // If best column is more than 180 degrees away, flip
-        if(bestCol > (m_ScratchImage.cols / 2)) {
-            bestCol -= m_ScratchImage.cols;
-        }
-
-        // Convert column into angle
-        const float bestAngle = ((float)bestCol / (float)m_ScratchImage.cols) * (2.0 * pi);
-        
-        // Return result
-        return std::make_tuple(bestAngle, minDifferenceSquared);
-    }
-    
-private:
-    //------------------------------------------------------------------------
-    // Private methods
-    //------------------------------------------------------------------------
     float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot) const
     {
         // Calculate absolute difference between image and stored image
@@ -234,7 +135,15 @@ private:
         // Extract difference
         return m_ScratchSumFloat.at<float>(0, 0);
     }
-    
+
+    void clear()
+    {
+        m_Snapshots.clear();
+    }
+
+    unsigned int getNumSnapshots() const{ return m_Snapshots.size(); }
+
+private:
     //------------------------------------------------------------------------
     // Private static methods
     //------------------------------------------------------------------------
@@ -280,12 +189,12 @@ public:
     :   m_StateMachine(this, State::Invalid), m_Camera("/dev/video" + std::to_string(camDevice), camRes),
         m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(unwrapRes, CV_8UC1),
         m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), unwrapRes)),
-        m_Memory(unwrapRes), m_TurnPID(2.0f, 0.0f, 0.0f, -1.0f, 1.0f)
+        m_Memory(unwrapRes)
     {
         m_Camera.setExposure(200);
         
         // Start in training state
-        m_StateMachine.transition(State::Training);
+        m_StateMachine.transition(State::Warmup);
     }
     
     ~RobotFSM() 
@@ -330,103 +239,104 @@ private:
             m_Unwrapper.unwrap(m_Output, m_Unwrapped);
         }
 
-        if(state == State::Training) {
+        if(state == State::Warmup) {
+	    if(event == Event::Enter) {
+                std::cout << "Starting warmup" << std::endl;
+                m_Memory.train(m_Unwrapped);
+            }
+            else if(event == Event::Update) {
+                const float differenceSinceLast = m_Memory.calcSnapshotDifferenceSquared(m_Unwrapped, m_Memory.getNumSnapshots() - 1);
+                if(differenceSinceLast < 10.0f) {
+                     m_Memory.clear();
+                     m_StateMachine.transition(State::Training);
+                }
+                else {
+                    m_Memory.train(m_Unwrapped);
+                }
+            }
+
+        }
+        else if(state == State::Training) {
             if(event == Event::Enter) {
                 std::cout << "Starting training" << std::endl;
+                const size_t snapshotID = m_Memory.train(m_Unwrapped);
+                std::cout << "\tTrained snapshot id:" << snapshotID << std::endl;
             }
             else if(event == Event::Update) {
                 // Drive motors using joystick
                 m_Joystick.drive(m_Motor, Settings::joystickDeadzone);
                 
-                if(m_Joystick.isButtonPressed(0)) {
+                const float threshold = 20.0f - (fabs(m_Joystick.getAxisState(0)) * 10.0f);
+                const float differenceSinceLast = m_Memory.calcSnapshotDifferenceSquared(m_Unwrapped, m_Memory.getNumSnapshots() - 1);
+                if(differenceSinceLast > threshold) {
                     const size_t snapshotID = m_Memory.train(m_Unwrapped);
-                    std::cout << "\tTrained snapshot id:" << snapshotID << std::endl;
+                    std::cout << "\tTrained snapshot id:" << snapshotID << " (difference since last " << differenceSinceLast << ")" << std::endl;
                 }
-                else if(m_Joystick.isButtonPressed(1)) {
+                
+                if(m_Joystick.isButtonPressed(1)) {
                     m_StateMachine.transition(State::ReturningToStart);
                 }
             }
         }
         else if(state == State::ReturningToStart) {
             if(event == Event::Enter) {
-                std::cout << "Return robot to start and press B" << std::endl;
+                std::cout << "Return robot to start and press button 1 (B)" << std::endl;
             }
             else if(event == Event::Update) {
+                m_Joystick.drive(m_Motor, Settings::joystickDeadzone);
+
                 if(m_Joystick.isButtonPressed(1)) {
-                    // Invalidate id of last snapshot and find next snapshot
-                    m_TurnToSnapshot = std::numeric_limits<size_t>::max();
-                    m_StateMachine.transition(State::TestingFindSnapshot);
+                    m_StateMachine.transition(State::Testing);
                 }
             }
         }
-        else if(state == State::TestingFindSnapshot) {
+        else if(state == State::Testing) {
             if(event == Event::Enter) {
                 std::cout << "Testing: finding snapshot" << std::endl;
+                m_LastSnapshot = std::numeric_limits<size_t>::max();
             }
             else if(event == Event::Update) {
                 // Find matching snapshot
+                float turnToAngle;
+                size_t turnToSnapshot;
                 float minDifferenceSquared;
-                std::tie(m_TurnToAngle, m_TurnToSnapshot, minDifferenceSquared) = m_Memory.findSnapshot(m_Unwrapped);
-                
+                std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory.findSnapshot(m_Unwrapped, m_LastSnapshot);
+                //m_LastSnapshot = turnToSnapshot;
+
                 // If a snapshot is found and it isn't the one we were previously at
-                if(m_TurnToSnapshot != std::numeric_limits<size_t>::max()) {
-                    std::cout << "\tBest match found with snapshot id " << m_TurnToSnapshot << " (angle:" << m_TurnToAngle << ", min difference:" << minDifferenceSquared << ")" << std::endl;
+                if(turnToSnapshot != std::numeric_limits<size_t>::max()) {
+                    std::cout << "\tBest match found with snapshot id " << turnToSnapshot << " (angle:" << turnToAngle << ", min difference:" << minDifferenceSquared << ")" << std::endl;
                     
-                    // If match is good but we're poorly oriented, turn to face
-                    if(minDifferenceSquared < 6.0 && fabs(m_TurnToAngle) > 0.1f) {
-                        m_StateMachine.transition(State::TestingOrientWithSnapshot);
+                    // If we're well oriented with snapshot, drive forwards
+                    //if(fabs(turnToAngle) < 0.1f) {
+                    //    m_Motor.tank(1.0f, 1.0f);
+                    //}
+                    // Otherwise, turn towards snapshot
+                    //else {
+                    //    const float motorTurn = std::min(1.0f, std::max(-1.0f, turnToAngle * 2.0f));
+                    //    m_Motor.tank(motorTurn, -motorTurn);
+                    //}
+                    const float theta = turnToAngle;
+                    const float twoTheta = theta * 2.0f;
+                    const float r = 0.6f;
+                    const float halfPi = pi * 0.5f;
+                    // Drive motor
+            	    if(theta >= 0.0f && theta < halfPi) {
+                        m_Motor.tank(r, r * cos(twoTheta));
                     }
-                    // Otherwise, turn to orient with current snapshot
-                    else {
-                        m_StateMachine.transition(State::TestingDriveHeading);
+                    else if(theta >= halfPi && theta < pi) {
+                        m_Motor.tank(-r * cos(twoTheta), -r);
+                    }
+                    else if(theta < 0.0f && theta >= -halfPi) {
+                        m_Motor.tank(r * cos(twoTheta), r);
+                    }
+                    else if(theta < -halfPi && theta >= -pi) {
+                        m_Motor.tank(-r, -r * cos(twoTheta));
                     }
                 }
-                else {
-                    std::cerr << "No snapshots learned" << std::endl;
+                else {                    std::cerr << "No snapshots learned" << std::endl;
                     return false;
                 }
-            }
-        }
-        else if(state == State::TestingOrientWithSnapshot) {
-            if(event == Event::Enter) {
-                std::cout << "Testing: turning to orient with snapshot " << m_TurnToSnapshot << std::endl;
-                
-                // Reset PID
-                m_TurnPID.initialise(m_TurnToAngle, 0.0f);
-            }
-            else if(event == Event::Update) {
-                // Get angle to the snapshot we are turning towards
-                float minDifferenceSquared;
-                std::tie(m_TurnToAngle, minDifferenceSquared) = m_Memory.getSnapshotAngle(m_Unwrapped, m_TurnToSnapshot);
-                std::cout << "\tMatch found with snapshot angle:" << m_TurnToAngle << ", min difference:" << minDifferenceSquared << std::endl;
-                
-                // If we've reached snapshot, drive towards it
-                if(fabs(m_TurnToAngle) < 0.1f) {
-                    m_StateMachine.transition(State::TestingDriveHeading);
-                }
-                else {
-                    const float motorTurn = m_TurnPID.update(0.0f, m_TurnToAngle);
-                    std::cout << "\tTurning:" << motorTurn << std::endl;
-                    m_Motor.tank(-motorTurn, motorTurn);
-                }
-                
-            }
-        }
-        else if(state == State::TestingDriveHeading) {
-            if(event == Event::Enter) {
-                std::cout << "Testing: driving heading" << std::endl;
-                m_Motor.tank(1.0f, 1.0f);
-                m_DriveTicks = 10;
-            }
-            else if(event == Event::Update) {
-                // If we have driven for long enough, search for next snapshot
-                m_DriveTicks--;
-                if(m_DriveTicks == 0) {
-                    m_StateMachine.transition(State::TestingFindSnapshot);
-                }
-            }
-            else if(event == Event::Exit) {
-                m_Motor.tank(0.0f, 0.0f);
             }
         }
         else {
@@ -448,6 +358,7 @@ private:
     // Joystick interface
     Joystick m_Joystick;
 
+    size_t m_LastSnapshot;
     // OpenCV images used to store raw camera frame and unwrapped panorama
     cv::Mat m_Output;
     cv::Mat m_Unwrapped;
@@ -458,18 +369,9 @@ private:
     // Perfect memory
     PerfectMemory<1> m_Memory;
 
-    // Which snapshot are we turning towards
-    size_t m_TurnToSnapshot;
-
-    // What is our current angle from snapshot
-    float m_TurnToAngle;
-
-    unsigned int m_DriveTicks;
     // Motor driver
     MotorI2C m_Motor;
 
-    // PID controller used to turn robot to match snapshot
-    PID m_TurnPID;
 };
 
 int main()
