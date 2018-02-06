@@ -34,9 +34,7 @@ namespace Settings
 enum class State
 {
     Invalid,
-    Warmup,
     Training,
-    ReturningToStart,
     Testing,
 };
 
@@ -74,7 +72,7 @@ public:
         return (m_Snapshots.size() - 1);
     }
     
-    std::tuple<float, size_t, float> findSnapshot(cv::Mat &image, size_t lastSnapshot) const
+    std::tuple<float, size_t, float> findSnapshot(cv::Mat &image) const
     {
         assert(image.cols == m_ScratchImage.cols);
         assert(image.rows == m_ScratchImage.rows);
@@ -90,9 +88,6 @@ public:
                 // Calculate difference
                 const float differenceSquared = calcSnapshotDifferenceSquared(image, s);
                 
-                if(s == lastSnapshot && differenceSquared > Settings::threshold) {
-                    continue;
-                }
                 // If this is an improvement - update
                 if(differenceSquared < minDifferenceSquared) {
                     minDifferenceSquared = differenceSquared;
@@ -134,11 +129,6 @@ public:
         
         // Extract difference
         return m_ScratchSumFloat.at<float>(0, 0);
-    }
-
-    void clear()
-    {
-        m_Snapshots.clear();
     }
 
     unsigned int getNumSnapshots() const{ return m_Snapshots.size(); }
@@ -194,7 +184,7 @@ public:
         m_Camera.setExposure(200);
         
         // Start in training state
-        m_StateMachine.transition(State::Warmup);
+        m_StateMachine.transition(State::Training);
     }
     
     ~RobotFSM() 
@@ -239,53 +229,19 @@ private:
             m_Unwrapper.unwrap(m_Output, m_Unwrapped);
         }
 
-        if(state == State::Warmup) {
-	    if(event == Event::Enter) {
-                std::cout << "Starting warmup" << std::endl;
-                m_Memory.train(m_Unwrapped);
-            }
-            else if(event == Event::Update) {
-                const float differenceSinceLast = m_Memory.calcSnapshotDifferenceSquared(m_Unwrapped, m_Memory.getNumSnapshots() - 1);
-                if(differenceSinceLast < 10.0f) {
-                     m_Memory.clear();
-                     m_StateMachine.transition(State::Training);
-                }
-                else {
-                    m_Memory.train(m_Unwrapped);
-                }
-            }
-
-        }
-        else if(state == State::Training) {
+        if(state == State::Training) {
             if(event == Event::Enter) {
                 std::cout << "Starting training" << std::endl;
-                const size_t snapshotID = m_Memory.train(m_Unwrapped);
-                std::cout << "\tTrained snapshot id:" << snapshotID << std::endl;
             }
             else if(event == Event::Update) {
                 // Drive motors using joystick
                 m_Joystick.drive(m_Motor, Settings::joystickDeadzone);
                 
-                const float threshold = 20.0f - (fabs(m_Joystick.getAxisState(0)) * 10.0f);
-                const float differenceSinceLast = m_Memory.calcSnapshotDifferenceSquared(m_Unwrapped, m_Memory.getNumSnapshots() - 1);
-                if(differenceSinceLast > threshold) {
+                if(m_Joystick.isButtonPressed(0)) {
                     const size_t snapshotID = m_Memory.train(m_Unwrapped);
-                    std::cout << "\tTrained snapshot id:" << snapshotID << " (difference since last " << differenceSinceLast << ")" << std::endl;
+                    std::cout << "\tTrained snapshot id:" << snapshotID << std::endl;
                 }
-                
-                if(m_Joystick.isButtonPressed(1)) {
-                    m_StateMachine.transition(State::ReturningToStart);
-                }
-            }
-        }
-        else if(state == State::ReturningToStart) {
-            if(event == Event::Enter) {
-                std::cout << "Return robot to start and press button 1 (B)" << std::endl;
-            }
-            else if(event == Event::Update) {
-                m_Joystick.drive(m_Motor, Settings::joystickDeadzone);
-
-                if(m_Joystick.isButtonPressed(1)) {
+                else if(m_Joystick.isButtonPressed(1)) {
                     m_StateMachine.transition(State::Testing);
                 }
             }
@@ -293,15 +249,13 @@ private:
         else if(state == State::Testing) {
             if(event == Event::Enter) {
                 std::cout << "Testing: finding snapshot" << std::endl;
-                m_LastSnapshot = std::numeric_limits<size_t>::max();
             }
             else if(event == Event::Update) {
                 // Find matching snapshot
                 float turnToAngle;
                 size_t turnToSnapshot;
                 float minDifferenceSquared;
-                std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory.findSnapshot(m_Unwrapped, m_LastSnapshot);
-                //m_LastSnapshot = turnToSnapshot;
+                std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory.findSnapshot(m_Unwrapped);
 
                 // If a snapshot is found and it isn't the one we were previously at
                 if(turnToSnapshot != std::numeric_limits<size_t>::max()) {
@@ -358,7 +312,6 @@ private:
     // Joystick interface
     Joystick m_Joystick;
 
-    size_t m_LastSnapshot;
     // OpenCV images used to store raw camera frame and unwrapped panorama
     cv::Mat m_Output;
     cv::Mat m_Unwrapped;
