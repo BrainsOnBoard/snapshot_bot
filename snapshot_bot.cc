@@ -6,6 +6,9 @@
 // Standard C includes
 #include <cassert>
 
+// POSIX includes
+#include <sys/stat.h>
+
 // GeNN robotics includes
 #include "fsm.h"
 #include "joystick.h"
@@ -23,7 +26,7 @@ namespace Settings
     const See3CAM_CU40::Resolution camRes = See3CAM_CU40::Resolution::_1280x720;
 
     // What resolution to unwrap panoramas to
-    const cv::Size unwrapRes(180, 20);
+    const cv::Size unwrapRes(180, 50);
 
     // How large should the deadzone be on the analogue joystick
     const float joystickDeadzone = 0.25f;
@@ -54,6 +57,25 @@ public:
     //------------------------------------------------------------------------
     // Public API
     //------------------------------------------------------------------------
+    void load()
+    {
+        struct stat buffer;
+        for(size_t i = 0;;i++) {
+            char filename[128];
+            sprintf(filename, "snapshot_%zu.png", i);
+            if(stat(filename, &buffer) == 0) {
+                m_Snapshots.push_back(cv::imread(filename, cv::IMREAD_GRAYSCALE));
+                assert(m_Snapshots.back().cols == m_ScratchImage.cols);
+                assert(m_Snapshots.back().rows == m_ScratchImage.rows);
+                assert(m_Snapshots.back().type() == CV_8UC1);
+            }
+            else {
+                break;
+	    }
+        }
+        std::cout << "Loaded " << m_Snapshots.size() << " snapshots" << std::endl;
+    }
+
     size_t train(const cv::Mat &image) 
     {
         assert(image.cols == m_ScratchImage.cols);
@@ -175,7 +197,7 @@ private:
 class RobotFSM : FSM<State>::StateHandler
 {
 public:
-    RobotFSM(unsigned int camDevice, See3CAM_CU40::Resolution camRes, const cv::Size &unwrapRes) 
+    RobotFSM(unsigned int camDevice, See3CAM_CU40::Resolution camRes, const cv::Size &unwrapRes, bool load) 
     :   m_StateMachine(this, State::Invalid), m_Camera("/dev/video" + std::to_string(camDevice), camRes),
         m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(unwrapRes, CV_8UC1),
         m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), unwrapRes)),
@@ -183,8 +205,21 @@ public:
     {
         m_Camera.setExposure(200);
         
-        // Start in training state
-        m_StateMachine.transition(State::Training);
+        // If we should load in existing snapshots
+        if(load) {
+            // Load memory
+            m_Memory.load();
+            
+            // Start directly in testing state
+            m_StateMachine.transition(State::Testing);
+        }
+        else {
+            // Delete old snapshots
+            system("rm -f snapshot_*.png");
+
+            // Start in training state
+            m_StateMachine.transition(State::Training);
+        }
     }
     
     ~RobotFSM() 
@@ -249,47 +284,44 @@ private:
         else if(state == State::Testing) {
             if(event == Event::Enter) {
                 std::cout << "Testing: finding snapshot" << std::endl;
+                m_MoveTime  = 0;
             }
             else if(event == Event::Update) {
-                // Find matching snapshot
-                float turnToAngle;
-                size_t turnToSnapshot;
-                float minDifferenceSquared;
-                std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory.findSnapshot(m_Unwrapped);
+                // If it's time to move
+                if(m_MoveTime == 0) {
+                    // Reset move time
+                    m_MoveTime = 10;
 
-                // If a snapshot is found and it isn't the one we were previously at
-                if(turnToSnapshot != std::numeric_limits<size_t>::max()) {
-                    std::cout << "\tBest match found with snapshot id " << turnToSnapshot << " (angle:" << turnToAngle << ", min difference:" << minDifferenceSquared << ")" << std::endl;
-                    
-                    // If we're well oriented with snapshot, drive forwards
-                    //if(fabs(turnToAngle) < 0.1f) {
-                    //    m_Motor.tank(1.0f, 1.0f);
-                    //}
-                    // Otherwise, turn towards snapshot
-                    //else {
-                    //    const float motorTurn = std::min(1.0f, std::max(-1.0f, turnToAngle * 2.0f));
-                    //    m_Motor.tank(motorTurn, -motorTurn);
-                    //}
-                    const float theta = turnToAngle;
-                    const float twoTheta = theta * 2.0f;
-                    const float r = 0.6f;
-                    const float halfPi = pi * 0.5f;
-                    // Drive motor
-            	    if(theta >= 0.0f && theta < halfPi) {
-                        m_Motor.tank(r, r * cos(twoTheta));
+	            // Find matching snapshot
+        	    float turnToAngle;
+                    size_t turnToSnapshot;
+              	    float minDifferenceSquared;
+                    std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory.findSnapshot(m_Unwrapped);
+
+                    // If a snapshot is found and it isn't the one we were previously at
+                    if(turnToSnapshot != std::numeric_limits<size_t>::max()) {
+                        std::cout << "\tBest match found with snapshot id " << turnToSnapshot << " (angle:" << turnToAngle << ", min difference:" << minDifferenceSquared << ")" << std::endl;
+
+                        // If we're well oriented with snapshot, drive forward
+                        const float turnMagnitude = fabs(turnToAngle);
+                        if(turnMagnitude < 0.1f) {
+                            m_Motor.tank(1.0f, 1.0f);
+                        }
+                        // Otherwise, turn towards snapshot
+                        else {
+                            const float motorSpeed = (turnMagnitude < 0.2f) ? 0.5f : 1.0f;
+                            const float motorTurn = (turnToAngle <  0.0f) ? -motorSpeed : motorSpeed;
+                            m_Motor.tank(motorTurn, -motorTurn);
+                        }
                     }
-                    else if(theta >= halfPi && theta < pi) {
-                        m_Motor.tank(-r * cos(twoTheta), -r);
-                    }
-                    else if(theta < 0.0f && theta >= -halfPi) {
-                        m_Motor.tank(r * cos(twoTheta), r);
-                    }
-                    else if(theta < -halfPi && theta >= -pi) {
-                        m_Motor.tank(-r, -r * cos(twoTheta));
+                    else {
+                        std::cerr << "No snapshots learned" << std::endl;
+                        return false;
                     }
                 }
-                else {                    std::cerr << "No snapshots learned" << std::endl;
-                    return false;
+                // Otherwise just decrement move time
+                else {
+                    m_MoveTime--;
                 }
             }
         }
@@ -325,24 +357,20 @@ private:
     // Motor driver
     MotorI2C m_Motor;
 
+    // 'Timer' used to move between snapshot tests
+    unsigned int m_MoveTime;
 };
 
-int main()
+int main(int argc, char *argv[])
 {
-    //cv::namedWindow("Raw", CV_WINDOW_NORMAL);
-    //cv::namedWindow("Unwrapped", CV_WINDOW_NORMAL);
-
-    RobotFSM robot(0, Settings::camRes, Settings::unwrapRes);
+    const bool load = (argc > 1);
+    RobotFSM robot(0, Settings::camRes, Settings::unwrapRes, load);
     
     {
         Timer<> timer("Total time:");
 
         unsigned int frame = 0;
         for(frame = 0; robot.update(); frame++) {
-            //cv::imshow("Raw", robot.getOutput());
-            //cv::imshow("Unwrapped", robot.getUnwrapped());
-            
-            //cv::waitKey(1);
         }
         
         const double msPerFrame = timer.get() / (double)frame;
