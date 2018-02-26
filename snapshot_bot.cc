@@ -14,17 +14,21 @@
 #include "see3cam_cu40.h"
 #include "timer.h"
 
+// Snapshot bot includes
+#include "snapshot_encoder.h"
+
 constexpr float pi = 3.141592653589793238462643383279502884f;
 
 namespace Settings
 {
-    
     // What resolution to operate camera at
     const See3CAM_CU40::Resolution camRes = See3CAM_CU40::Resolution::_1280x720;
 
     // What resolution to unwrap panoramas to
     const cv::Size unwrapRes(180, 20);
 
+    const unsigned int snapshotSize = 64;
+    
     // How large should the deadzone be on the analogue joystick
     const float joystickDeadzone = 0.25f;
 
@@ -34,6 +38,7 @@ namespace Settings
 enum class State
 {
     Invalid,
+    BuildingOfflineTrainingData,
     Training,
     Testing,
 };
@@ -83,6 +88,10 @@ public:
         int bestCol = 0;
         size_t bestSnapshot = std::numeric_limits<size_t>::max();
         for(int i = 0; i < image.cols; i += scanStep) {
+            //image.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
+            // 1) Convert rolled image to float
+            // 2) Encode
+            // 3) Convert to 8-bit
             // Loop through snapshots
             for(size_t s = 0; s < m_Snapshots.size(); s++) {
                 // Calculate difference
@@ -167,6 +176,8 @@ private:
     cv::Mat m_ScratchImageFloat;
     cv::Mat m_ScratchXSumFloat;
     cv::Mat m_ScratchSumFloat;
+    
+    //SnapshotEncoder m_Encoder;
 };
 
 //------------------------------------------------------------------------
@@ -175,7 +186,7 @@ private:
 class RobotFSM : FSM<State>::StateHandler
 {
 public:
-    RobotFSM(unsigned int camDevice, See3CAM_CU40::Resolution camRes, const cv::Size &unwrapRes) 
+    RobotFSM(unsigned int camDevice, See3CAM_CU40::Resolution camRes, const cv::Size &unwrapRes, unsigned int snapshotSize) 
     :   m_StateMachine(this, State::Invalid), m_Camera("/dev/video" + std::to_string(camDevice), camRes),
         m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(unwrapRes, CV_8UC1),
         m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), unwrapRes)),
@@ -229,6 +240,18 @@ private:
             m_Unwrapper.unwrap(m_Output, m_Unwrapped);
         }
 
+        if(state == State::BuildingOfflineTrainingData) {
+            if(event == Event::Enter) {
+                std::cout << "Starting to build offline training data" << std::endl;
+                m_TrainingSnapshot = 0;
+            }
+            else if(event == Event::Update) {
+                char filename[128];
+                sprintf(filename, "training_%u.png", m_TrainingSnapshot++);
+                
+                cv::imwrite(filename, m_Unwrapped);
+            }
+        }
         if(state == State::Training) {
             if(event == Event::Enter) {
                 std::cout << "Starting training" << std::endl;
@@ -288,7 +311,8 @@ private:
                         m_Motor.tank(-r, -r * cos(twoTheta));
                     }
                 }
-                else {                    std::cerr << "No snapshots learned" << std::endl;
+                else {                    
+                    std::cerr << "No snapshots learned" << std::endl;
                     return false;
                 }
             }
@@ -324,6 +348,8 @@ private:
 
     // Motor driver
     MotorI2C m_Motor;
+    
+    unsigned int m_TrainingSnapshot;
 
 };
 
@@ -332,7 +358,7 @@ int main()
     //cv::namedWindow("Raw", CV_WINDOW_NORMAL);
     //cv::namedWindow("Unwrapped", CV_WINDOW_NORMAL);
 
-    RobotFSM robot(0, Settings::camRes, Settings::unwrapRes);
+    RobotFSM robot(1, Settings::camRes, Settings::unwrapRes, Settings::snapshotSize);
     
     {
         Timer<> timer("Total time:");

@@ -1,1 +1,1 @@
-g++ snapshot_bot.cc -std=c++11 `pkg-config --libs --cflags opencv` -I $GENN_ROBOTICS_PATH/common -o snapshot_bot
+g++ snapshot_bot.cc snapshot_encoder.cc -std=c++11 -L ~/.local/lib -I ~/.local/lib/python2.7/site-packages/tensorflow/include -I $GENN_ROBOTICS_PATH/common -o snapshot_bot -ltensorflow -lpython2.7 -lcuda -lcudnn `pkg-config --libs --cflags opencv`
