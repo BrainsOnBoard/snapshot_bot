@@ -33,6 +33,8 @@ public:
     const cv::Mat &getFinalSnapshot() const{ return m_Output; }
     const cv::Mat &getFinalSnapshotFloat() const{ return m_OutputFloat; }
 
+    const bool isModelOpen() const{ return (m_Status != nullptr) && (m_Graph != nullptr) && (m_Session != nullptr) && (m_InputTensor != nullptr) && (m_OutputTensor != nullptr); }
+    
 private:
     //------------------------------------------------------------------------
     // Private methods

@@ -25,9 +25,9 @@ namespace Settings
     const See3CAM_CU40::Resolution camRes = See3CAM_CU40::Resolution::_1280x720;
 
     // What resolution to unwrap panoramas to
-    const cv::Size unwrapRes(180, 20);
+    const cv::Size unwrapRes(180, 50);
 
-    const unsigned int snapshotSize = 64;
+    const unsigned int encodedSnapshotSize = 64;
     
     // How large should the deadzone be on the analogue joystick
     const float joystickDeadzone = 0.25f;
@@ -50,24 +50,36 @@ template<unsigned int scanStep>
 class PerfectMemory
 {
 public:
-    PerfectMemory(const cv::Size &snapshotRes) 
+    PerfectMemory(const cv::Size &snapshotRes, unsigned int encodedSnapshotSize) 
     :   m_ScratchImage(snapshotRes, CV_8UC1), m_ScratchImageFloat(snapshotRes, CV_32FC1),
-        m_ScratchXSumFloat(1, snapshotRes.width, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1)
+        m_ScratchXSumFloat(1, snapshotRes.width, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1),
+        m_Encoder(snapshotRes.width, snapshotRes.height, encodedSnapshotSize)
     {
     }
     
     //------------------------------------------------------------------------
     // Public API
     //------------------------------------------------------------------------
+    bool openEncoderModel(const std::string &exportDirectory, const std::string &tag,
+                          const std::string &inputOpName, const std::string &outputOpName)
+    {
+        return m_Encoder.openModel(exportDirectory, tag, inputOpName, outputOpName);
+    }
+    
     size_t train(const cv::Mat &image) 
     {
         assert(image.cols == m_ScratchImage.cols);
         assert(image.rows == m_ScratchImage.rows);
         assert(image.type() == CV_8UC1);
-            
-        // Add a new snapshot and make copy of image into it
+        assert(isEncoderModelOpen());
+        
+        // Convert snapshot to float and encode
+        image.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
+        m_Encoder.encode(image);
+        
+        // Add a new snapshot and copy encoder output into it
         m_Snapshots.emplace_back();
-        image.copyTo(m_Snapshots.back());
+        m_Encoder.getFinalSnapshot().copyTo(m_Snapshots.back());
 
         char filename[128];
         sprintf(filename, "snapshot_%zu.png", m_Snapshots.size() - 1);
@@ -77,25 +89,28 @@ public:
         return (m_Snapshots.size() - 1);
     }
     
-    std::tuple<float, size_t, float> findSnapshot(cv::Mat &image) const
+    std::tuple<float, size_t, float> findSnapshot(cv::Mat &image)
     {
         assert(image.cols == m_ScratchImage.cols);
         assert(image.rows == m_ScratchImage.rows);
         assert(image.type() == CV_8UC1);
+        assert(isEncoderModelOpen());
         
         // Scan across image columns
         float minDifferenceSquared = std::numeric_limits<float>::max();
         int bestCol = 0;
         size_t bestSnapshot = std::numeric_limits<size_t>::max();
         for(int i = 0; i < image.cols; i += scanStep) {
-            //image.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
-            // 1) Convert rolled image to float
-            // 2) Encode
-            // 3) Convert to 8-bit
+            // Convert rolled image to float
+            image.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
+            
+            // Encode floating point snapshot
+            m_Encoder.encode(m_ScratchImageFloat);
+
             // Loop through snapshots
             for(size_t s = 0; s < m_Snapshots.size(); s++) {
-                // Calculate difference
-                const float differenceSquared = calcSnapshotDifferenceSquared(image, s);
+                // Calculate difference between encoded input and snapshot
+                const float differenceSquared = calcSnapshotDifferenceSquared(m_Encoder.getFinalSnapshot(), s);
                 
                 // If this is an improvement - update
                 if(differenceSquared < minDifferenceSquared) {
@@ -121,7 +136,7 @@ public:
         return std::make_tuple(bestAngle, bestSnapshot, minDifferenceSquared);
     }
     
-    float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot) const
+    float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot)
     {
         // Calculate absolute difference between image and stored image
         cv::absdiff(m_Snapshots[snapshot], image, m_ScratchImage);
@@ -141,7 +156,8 @@ public:
     }
 
     unsigned int getNumSnapshots() const{ return m_Snapshots.size(); }
-
+    bool isEncoderModelOpen() const{ return m_Encoder.isModelOpen(); }
+    
 private:
     //------------------------------------------------------------------------
     // Private static methods
@@ -177,7 +193,7 @@ private:
     cv::Mat m_ScratchXSumFloat;
     cv::Mat m_ScratchSumFloat;
     
-    //SnapshotEncoder m_Encoder;
+    SnapshotEncoder m_Encoder;
 };
 
 //------------------------------------------------------------------------
@@ -186,16 +202,24 @@ private:
 class RobotFSM : FSM<State>::StateHandler
 {
 public:
-    RobotFSM(unsigned int camDevice, See3CAM_CU40::Resolution camRes, const cv::Size &unwrapRes, unsigned int snapshotSize) 
+    RobotFSM(unsigned int camDevice, See3CAM_CU40::Resolution camRes, const cv::Size &unwrapRes, unsigned int encodedSnapshotSize, bool buildTrainingData) 
     :   m_StateMachine(this, State::Invalid), m_Camera("/dev/video" + std::to_string(camDevice), camRes),
         m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(unwrapRes, CV_8UC1),
         m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), unwrapRes)),
-        m_Memory(unwrapRes)
+        m_Memory(unwrapRes, encodedSnapshotSize)
     {
         m_Camera.setExposure(200);
         
         // Start in training state
-        m_StateMachine.transition(State::Training);
+        if(buildTrainingData) {
+            m_StateMachine.transition(State::BuildingOfflineTrainingData);
+        }
+        else {
+            // Open encoder model 
+            m_Memory.openEncoderModel("./export", "tag", "input", "encoder_3");
+            
+            m_StateMachine.transition(State::Training);
+        }
     }
     
     ~RobotFSM() 
@@ -250,9 +274,11 @@ private:
                 sprintf(filename, "training_%u.png", m_TrainingSnapshot++);
                 
                 cv::imwrite(filename, m_Unwrapped);
+
+                m_Joystick.drive(m_Motor, Settings::joystickDeadzone);
             }
         }
-        if(state == State::Training) {
+        else if(state == State::Training) {
             if(event == Event::Enter) {
                 std::cout << "Starting training" << std::endl;
             }
@@ -353,12 +379,14 @@ private:
 
 };
 
-int main()
+int main(int argc, char *argv[])
 {
+    const bool buildTrainingData = (argc > 1 && strcmp(argv[1], "build") == 0);
+    
     //cv::namedWindow("Raw", CV_WINDOW_NORMAL);
     //cv::namedWindow("Unwrapped", CV_WINDOW_NORMAL);
 
-    RobotFSM robot(1, Settings::camRes, Settings::unwrapRes, Settings::snapshotSize);
+    RobotFSM robot(0, Settings::camRes, Settings::unwrapRes, Settings::encodedSnapshotSize, buildTrainingData);
     
     {
         Timer<> timer("Total time:");
