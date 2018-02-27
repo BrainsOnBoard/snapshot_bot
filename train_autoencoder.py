@@ -8,7 +8,7 @@ from glob import glob
 #-----------------------------------------------------------------------------
 # Parameters
 #-----------------------------------------------------------------------------
-SNAPSHOT_WIDTH = 90#69
+SNAPSHOT_WIDTH = 90
 SNAPSHOT_HEIGHT = 25
 
 # Calculate layer sizes
@@ -22,54 +22,41 @@ DISPLAY_STEP = 250
 
 NUM_STEPS = 10000
 
-# How many training images should we keep behind for testing
-# **NOTE** this is kinda unnecessary as the
-NUM_TESTING = 10
-
-# How many in-silica 'rolls' should we make of each training image - this generates rotated versions
-NUM_IMAGE_ROLLS = 1
-IMAGE_ROLL_PIXELS = SNAPSHOT_WIDTH / NUM_IMAGE_ROLLS
-
 # Should we train the network or just load the exported model
-TRAIN = True
+TRAIN = False
+
+def load_images(filenames):
+    # Create empty array of training data
+    data = np.empty(dtype=np.float32, shape=(len(filenames), LAYER_SIZES[0]))
+
+    # Load route images into filenames
+    for i, t in enumerate(filenames):
+        # Read image
+        image = imread(t, IMREAD_GRAYSCALE).astype(np.float32)
+        image /= 255.0
+
+        # Copy into first row corresponding to this image
+        data[i] = np.reshape(image, LAYER_SIZES[0])
+
+    return data
 
 #-----------------------------------------------------------------------------
 # Entry point
 #-----------------------------------------------------------------------------
-# Search for route data
-training_images = glob("office_training_3/*.png")
-
-# Create empty array of training data
-data = np.empty(dtype=np.float32, shape=(len(training_images) * NUM_IMAGE_ROLLS, LAYER_SIZES[0]))
-
-# Load route images into rows
-for i, t in enumerate(training_images):
-    # Read image
-    image = imread(t, IMREAD_GRAYSCALE).astype(np.float32)
-    #image = image[:,15:84]
-    image /= 255.0
-
-    # Copy into first row corresponding to this image
-    data[i * NUM_IMAGE_ROLLS] = np.reshape(image, LAYER_SIZES[0])
-
-    # Loop through in-silica 'rolls'
-    for r in range(1, NUM_IMAGE_ROLLS):
-        # Roll image suitable amount
-        rolled_image = np.roll(image, r * IMAGE_ROLL_PIXELS, axis=1)
-        data[(i * NUM_IMAGE_ROLLS) + r] = np.reshape(rolled_image, LAYER_SIZES[0])
-
-# Shuffle dataset
-# **NOTE** this only shuffles along 1st axis as required
-np.random.shuffle(data)
-
-# Split into testing and training
-testing_data = data[:NUM_TESTING]
-training_data = data[NUM_TESTING:]
-
 # Start Training
 # Start a new TF session
 with tf.Session() as sess:
     if TRAIN:
+        # Search for route data
+        training_images = glob("training_dz_boxes/*.png")
+
+        # Load images
+        training_data = load_images(training_images)
+
+        # Shuffle dataset
+        # **NOTE** this only shuffles along 1st axis as required
+        np.random.shuffle(training_data)
+
         # tf Graph input (only pictures)
         X = tf.placeholder("float", [None, LAYER_SIZES[0]], name="input")
 
@@ -162,28 +149,36 @@ with tf.Session() as sess:
             pass
 
         # Saving
-        builder = tf.saved_model.builder.SavedModelBuilder("./export")
+        builder = tf.saved_model.builder.SavedModelBuilder("./export_dz_boxes")
         builder.add_meta_graph_and_variables(sess, ["tag"],
                                              signature_def_map=None,
                                              assets_collection=None)
         builder.save()
         print("Saved model")
     else:
-        tf.saved_model.loader.load(sess, ["tag"], "./export")
+        # Search for test data
+        testing_images = glob("net_evade/*.png")
+        #np.random.shuffle(testing_images)
+        #testing_images = testing_images[:10]
+
+        # Load images
+        testing_data = load_images(testing_images)
+
+        tf.saved_model.loader.load(sess, ["tag"], "./export_dz_boxes")
         graph = tf.get_default_graph()
         X = graph.get_tensor_by_name("input:0")
-        decoder_op = graph.get_tensor_by_name("decoder_2:0")
+        decoder_op = graph.get_tensor_by_name("decoder_3:0")
         print("Model restored")
 
-    print("Testing")
-    reconstructed = sess.run(decoder_op, feed_dict={X: testing_data})
+        print("Testing")
+        reconstructed = sess.run(decoder_op, feed_dict={X: testing_data})
 
-    # Plot results
-    fig, axes = plt.subplots(NUM_TESTING, 2)
-    for i in range(NUM_TESTING):
-        input_image = np.reshape(testing_data[i], (SNAPSHOT_HEIGHT, SNAPSHOT_WIDTH))
-        reconstructed_image = np.reshape(reconstructed[i], (SNAPSHOT_HEIGHT, SNAPSHOT_WIDTH))
+        # Plot results
+        fig, axes = plt.subplots(len(testing_data), 2)
+        for i, t in enumerate(testing_data):
+            input_image = np.reshape(t, (SNAPSHOT_HEIGHT, SNAPSHOT_WIDTH))
+            reconstructed_image = np.reshape(reconstructed[i], (SNAPSHOT_HEIGHT, SNAPSHOT_WIDTH))
 
-        axes[i, 0].imshow(input_image, cmap="gray")
-        axes[i, 1].imshow(reconstructed_image, cmap="gray")
-    plt.show()
+            axes[i, 0].imshow(input_image, cmap="gray")
+            axes[i, 1].imshow(reconstructed_image, cmap="gray")
+        plt.show()
