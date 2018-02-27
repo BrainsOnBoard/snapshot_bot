@@ -51,8 +51,8 @@ class PerfectMemory
 {
 public:
     PerfectMemory(const cv::Size &snapshotRes, unsigned int encodedSnapshotSize) 
-    :   m_ScratchImage(1, encodedSnapshotSize, CV_8UC1), m_ScratchImageFloat(1, encodedSnapshotSize, CV_32FC1),
-        m_ScratchSumFloat(1, 1, CV_32FC1),
+    :   m_ScratchCompressedImage(1, encodedSnapshotSize, CV_8UC1), m_ScratchCompressedImageFloat(1, encodedSnapshotSize, CV_32FC1),
+        m_ScratchImageFloat(snapshotRes, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1),
         m_Encoder(snapshotRes.width, snapshotRes.height, encodedSnapshotSize), m_SnapshotSize(snapshotRes)
     {
     }
@@ -139,17 +139,17 @@ public:
     
     float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot)
     {
-        // Calculate absolute difference between image and stored image
-        cv::absdiff(m_Snapshots[snapshot], image, m_ScratchImage);
+        // Calculate absolute difference between compressed snapshot and image
+        cv::absdiff(m_Snapshots[snapshot], image, m_ScratchCompressedImage);
         
         // Convert to float
-        m_ScratchImage.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
+        m_ScratchCompressedImage.convertTo(m_ScratchCompressedImageFloat, CV_32FC1, 1.0 / 255.0);
         
         // Square 
-        cv::multiply(m_ScratchImageFloat, m_ScratchImageFloat, m_ScratchImageFloat);
+        cv::multiply(m_ScratchCompressedImageFloat, m_ScratchCompressedImageFloat, m_ScratchCompressedImageFloat);
 
         // Reduce difference down twice to get scalar
-        cv::reduce(m_ScratchImageFloat, m_ScratchSumFloat, 1, CV_REDUCE_SUM);
+        cv::reduce(m_ScratchCompressedImageFloat, m_ScratchSumFloat, 1, CV_REDUCE_SUM);
         
         // Extract difference
         return m_ScratchSumFloat.at<float>(0, 0);
@@ -188,9 +188,12 @@ private:
     // Members
     //------------------------------------------------------------------------
     std::vector<cv::Mat> m_Snapshots;
+
+    cv::Mat m_ScratchCompressedImage;
+    cv::Mat m_ScratchCompressedImageFloat;    
     
-    cv::Mat m_ScratchImage;
     cv::Mat m_ScratchImageFloat;
+
     cv::Mat m_ScratchSumFloat;
     
     SnapshotEncoder m_Encoder;
