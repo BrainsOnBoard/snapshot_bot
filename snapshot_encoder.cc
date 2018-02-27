@@ -1,6 +1,9 @@
 #include "snapshot_encoder.h"
 
+// Standard C includes
+#include <fstream>
 #include <iostream>
+#include <vector>
 
 // Standard C includes
 #include <cassert>
@@ -18,10 +21,11 @@ SnapshotEncoder::SnapshotEncoder(unsigned int inputWidth, unsigned int inputHeig
 //----------------------------------------------------------------------------
 SnapshotEncoder::SnapshotEncoder(unsigned int inputWidth, unsigned int inputHeight, unsigned int outputSize,
                                  const std::string &exportDirectory, const std::string &tag,
-                                 const std::string &inputOpName, const std::string &outputOpName)
+                                 const std::string &inputOpName, const std::string &outputOpName,
+                                 const std::string &configFilename)
 :   SnapshotEncoder(inputWidth, inputHeight, outputSize)
 {
-    if(!openModel(exportDirectory, tag, inputOpName, outputOpName)) {
+    if(!openModel(exportDirectory, tag, inputOpName, outputOpName, configFilename)) {
         throw std::runtime_error("Cannot open model");
     }
 }
@@ -50,7 +54,8 @@ SnapshotEncoder::~SnapshotEncoder()
 }
 //----------------------------------------------------------------------------
 bool SnapshotEncoder::openModel(const std::string &exportDirectory, const std::string &tag,
-                                const std::string &inputOpName, const std::string &outputOpName)
+                                const std::string &inputOpName, const std::string &outputOpName,
+                                const std::string &configFilename)
 {
     // Create a status object for all subsequent calls
     m_Status = TF_NewStatus();
@@ -58,9 +63,35 @@ bool SnapshotEncoder::openModel(const std::string &exportDirectory, const std::s
     // Create graph
     m_Graph = TF_NewGraph();
 
+    // Create session options
+    TF_SessionOptions *sessionOptions = TF_NewSessionOptions();
+    
+    // If config filename is specified
+    if(!configFilename.empty()) {
+        // Open file
+        std::ifstream config(configFilename.c_str(), std::ios::binary);
+        
+        // Find it's length
+        config.seekg(0, std::ios::end);
+        const auto configBytes = config.tellg();
+        config.seekg(0, std::ios::beg);
+        
+        // Read config data into vector
+        std::vector<char> configData(configBytes);
+        config.read(configData.data(), configBytes);
+        
+        // Set session options config
+        TF_SetConfig(sessionOptions, configData.data(), configData.size(), m_Status);
+        
+        // Check status
+        if(TF_GetCode(m_Status) != TF_OK) {
+            std::cerr << "Cannot load set config:" <<  TF_Message(m_Status) << std::endl;
+            return false;
+        }
+    }
+    
     // Load session from saved model
     std::array<const char*, 1> tags = {tag.c_str()};
-    TF_SessionOptions *sessionOptions = TF_NewSessionOptions();
     m_Session = TF_LoadSessionFromSavedModel(sessionOptions, nullptr,
                                              exportDirectory.c_str(),
                                              tags.data(), tags.size(),
@@ -91,7 +122,7 @@ bool SnapshotEncoder::openModel(const std::string &exportDirectory, const std::s
     m_OutputOp[0].index = 0;
     m_OutputOp[0].oper = TF_GraphOperationByName(m_Graph, outputOpName.c_str());
     if(m_OutputOp[0].oper == nullptr) {
-        std::cerr << "Cannot get find input operation in graph" << std::endl;
+        std::cerr << "Cannot get find output operation in graph" << std::endl;
         return false;
     }
 

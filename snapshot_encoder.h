@@ -20,14 +20,16 @@ public:
     SnapshotEncoder(unsigned int inputWidth, unsigned int inputHeight, unsigned int outputSize);
     SnapshotEncoder(unsigned int inputWidth, unsigned int inputHeight, unsigned int outputSize,
                     const std::string &exportDirectory, const std::string &tag,
-                    const std::string &inputOpName, const std::string &outputOpName);
+                    const std::string &inputOpName, const std::string &outputOpName,
+                    const std::string &configFilename);
     ~SnapshotEncoder();
 
     //------------------------------------------------------------------------
     // Public API
     //------------------------------------------------------------------------
     bool openModel(const std::string &exportDirectory, const std::string &tag,
-                   const std::string &inputOpName, const std::string &outputOpName);
+                   const std::string &inputOpName, const std::string &outputOpName,
+                   const std::string &configFilename);
     void encode(const cv::Mat &snapshotFloat);
 
     const cv::Mat &getFinalSnapshot() const{ return m_Output; }

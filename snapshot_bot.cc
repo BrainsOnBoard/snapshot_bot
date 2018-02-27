@@ -61,9 +61,10 @@ public:
     // Public API
     //------------------------------------------------------------------------
     bool openEncoderModel(const std::string &exportDirectory, const std::string &tag,
-                          const std::string &inputOpName, const std::string &outputOpName)
+                          const std::string &inputOpName, const std::string &outputOpName,
+                          const std::string &configFilename)
     {
-        return m_Encoder.openModel(exportDirectory, tag, inputOpName, outputOpName);
+        return m_Encoder.openModel(exportDirectory, tag, inputOpName, outputOpName, configFilename);
     }
     
     size_t train(const cv::Mat &image) 
@@ -217,7 +218,7 @@ public:
         }
         else {
             // Open encoder model 
-            if(!m_Memory.openEncoderModel("./export_office_good", "tag", "input", "encoder_3")) {
+            if(!m_Memory.openEncoderModel("./export_office_good", "tag", "input", "encoder_3", "config.pb")) {
                 throw std::runtime_error("Cannot load encoder model");
             }
             m_StateMachine.transition(State::Training);
