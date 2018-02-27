@@ -25,14 +25,14 @@ namespace Settings
     const See3CAM_CU40::Resolution camRes = See3CAM_CU40::Resolution::_1280x720;
 
     // What resolution to unwrap panoramas to
-    const cv::Size unwrapRes(180, 50);
+    const cv::Size unwrapRes(90, 25);
 
     const unsigned int encodedSnapshotSize = 64;
     
     // How large should the deadzone be on the analogue joystick
     const float joystickDeadzone = 0.25f;
 
-    const float  threshold = 30.0f;
+    const float threshold = 30.0f;
 }
 
 enum class State
@@ -51,9 +51,9 @@ class PerfectMemory
 {
 public:
     PerfectMemory(const cv::Size &snapshotRes, unsigned int encodedSnapshotSize) 
-    :   m_ScratchImage(snapshotRes, CV_8UC1), m_ScratchImageFloat(snapshotRes, CV_32FC1),
-        m_ScratchXSumFloat(1, snapshotRes.width, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1),
-        m_Encoder(snapshotRes.width, snapshotRes.height, encodedSnapshotSize)
+    :   m_ScratchImage(1, encodedSnapshotSize, CV_8UC1), m_ScratchImageFloat(1, encodedSnapshotSize, CV_32FC1),
+        m_ScratchSumFloat(1, 1, CV_32FC1),
+        m_Encoder(snapshotRes.width, snapshotRes.height, encodedSnapshotSize), m_SnapshotSize(snapshotRes)
     {
     }
     
@@ -68,14 +68,14 @@ public:
     
     size_t train(const cv::Mat &image) 
     {
-        assert(image.cols == m_ScratchImage.cols);
-        assert(image.rows == m_ScratchImage.rows);
+        assert(image.cols == m_SnapshotSize.width);
+        assert(image.rows == m_SnapshotSize.height);
         assert(image.type() == CV_8UC1);
         assert(isEncoderModelOpen());
         
         // Convert snapshot to float and encode
         image.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
-        m_Encoder.encode(image);
+        m_Encoder.encode(m_ScratchImageFloat);
         
         // Add a new snapshot and copy encoder output into it
         m_Snapshots.emplace_back();
@@ -91,8 +91,8 @@ public:
     
     std::tuple<float, size_t, float> findSnapshot(cv::Mat &image)
     {
-        assert(image.cols == m_ScratchImage.cols);
-        assert(image.rows == m_ScratchImage.rows);
+        assert(image.cols == m_SnapshotSize.width);
+        assert(image.rows == m_SnapshotSize.height);
         assert(image.type() == CV_8UC1);
         assert(isEncoderModelOpen());
         
@@ -125,12 +125,12 @@ public:
         }            
         
         // If best column is more than 180 degrees away, flip
-        if(bestCol > (m_ScratchImage.cols / 2)) {
-            bestCol -= m_ScratchImage.cols;
+        if(bestCol > (m_SnapshotSize.width / 2)) {
+            bestCol -= m_SnapshotSize.width;
         }
 
         // Convert column into angle
-        const float bestAngle = ((float)bestCol / (float)m_ScratchImage.cols) * (2.0 * pi);
+        const float bestAngle = ((float)bestCol / (float)m_SnapshotSize.width) * (2.0 * pi);
         
         // Return result
         return std::make_tuple(bestAngle, bestSnapshot, minDifferenceSquared);
@@ -148,8 +148,7 @@ public:
         cv::multiply(m_ScratchImageFloat, m_ScratchImageFloat, m_ScratchImageFloat);
 
         // Reduce difference down twice to get scalar
-        cv::reduce(m_ScratchImageFloat, m_ScratchXSumFloat, 0, CV_REDUCE_SUM);
-        cv::reduce(m_ScratchXSumFloat, m_ScratchSumFloat, 1, CV_REDUCE_SUM);
+        cv::reduce(m_ScratchImageFloat, m_ScratchSumFloat, 1, CV_REDUCE_SUM);
         
         // Extract difference
         return m_ScratchSumFloat.at<float>(0, 0);
@@ -188,12 +187,14 @@ private:
     // Members
     //------------------------------------------------------------------------
     std::vector<cv::Mat> m_Snapshots;
+    
     cv::Mat m_ScratchImage;
     cv::Mat m_ScratchImageFloat;
-    cv::Mat m_ScratchXSumFloat;
     cv::Mat m_ScratchSumFloat;
     
     SnapshotEncoder m_Encoder;
+    
+    const cv::Size m_SnapshotSize;
 };
 
 //------------------------------------------------------------------------
@@ -208,7 +209,7 @@ public:
         m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), unwrapRes)),
         m_Memory(unwrapRes, encodedSnapshotSize)
     {
-        m_Camera.setExposure(200);
+        m_Camera.setBrightness(20);
         
         // Start in training state
         if(buildTrainingData) {
@@ -216,8 +217,9 @@ public:
         }
         else {
             // Open encoder model 
-            m_Memory.openEncoderModel("./export", "tag", "input", "encoder_3");
-            
+            if(!m_Memory.openEncoderModel("./export_office_good", "tag", "input", "encoder_3")) {
+                throw std::runtime_error("Cannot load encoder model");
+            }
             m_StateMachine.transition(State::Training);
         }
     }
