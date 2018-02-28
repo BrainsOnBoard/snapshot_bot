@@ -56,7 +56,7 @@ public:
     PerfectMemory(const cv::Size &snapshotRes, unsigned int encodedSnapshotSize) 
     :   m_ScratchCompressedImage(1, encodedSnapshotSize, CV_8UC1), m_ScratchCompressedImageFloat(1, encodedSnapshotSize, CV_32FC1),
         m_ScratchImageFloat(snapshotRes, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1),
-        m_Encoder(snapshotRes.width, snapshotRes.height, encodedSnapshotSize), m_SnapshotSize(snapshotRes)
+        m_Encoder(snapshotRes.width, snapshotRes.height, encodedSnapshotSize), m_SnapshotSize(snapshotRes), m_EncodedSnapshotSize(encodedSnapshotSize)
     {
     }
     
@@ -78,7 +78,7 @@ public:
             sprintf(filename, "snapshot_%zu.png", i);
             if(stat(filename, &buffer) == 0) {
                 m_Snapshots.push_back(cv::imread(filename, cv::IMREAD_GRAYSCALE));
-                assert(m_Snapshots.back().cols == 64);
+                assert(m_Snapshots.back().cols == m_EncodedSnapshotSize);
                 assert(m_Snapshots.back().rows == 1);
                 assert(m_Snapshots.back().type() == CV_8UC1);
             }
@@ -107,6 +107,9 @@ public:
         char filename[128];
         sprintf(filename, "snapshot_%zu.png", m_Snapshots.size() - 1);
         cv::imwrite(filename, m_Snapshots.back());
+        
+        sprintf(filename, "snapshot_raw_%zu.png", m_Snapshots.size() - 1);
+        cv::imwrite(filename, image);
 
         // Return index of new snapshot
         return (m_Snapshots.size() - 1);
@@ -126,15 +129,15 @@ public:
         for(int i = 0; i < image.cols; i += scanStep) {
             // Convert rolled image to float
             image.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
-            
+        
             // Encode floating point snapshot
             m_Encoder.encode(m_ScratchImageFloat);
-
+        
             // Loop through snapshots
             for(size_t s = 0; s < m_Snapshots.size(); s++) {
                 // Calculate difference between encoded input and snapshot
                 const float differenceSquared = calcSnapshotDifferenceSquared(m_Encoder.getFinalSnapshot(), s);
-                
+
                 // If this is an improvement - update
                 if(differenceSquared < minDifferenceSquared) {
                     minDifferenceSquared = differenceSquared;
@@ -221,6 +224,7 @@ private:
     SnapshotEncoder m_Encoder;
     
     const cv::Size m_SnapshotSize;
+    const unsigned int m_EncodedSnapshotSize;
 };
 
 //------------------------------------------------------------------------
@@ -243,7 +247,7 @@ public:
         }
         else {
             // Open encoder model 
-            if(!m_Memory.openEncoderModel("./export_office_good", "tag", "input", "encoder_3", "config.pb")) {
+            if(!m_Memory.openEncoderModel("./export_dz_boxes", "tag", "input", "encoder_3", "config.pb")) {
                 throw std::runtime_error("Cannot load encoder model");
             }
             // If we should load in existing snapshots
@@ -310,13 +314,19 @@ private:
             if(event == Event::Enter) {
                 std::cout << "Starting to build offline training data" << std::endl;
                 m_TrainingSnapshot = 0;
+                m_MoveTime = 0;
             }
             else if(event == Event::Update) {
-                char filename[128];
-                sprintf(filename, "training_%u.png", m_TrainingSnapshot++);
+                if(m_MoveTime == 0) {
+                    m_MoveTime = 10;
+                    char filename[128];
+                    sprintf(filename, "training_%u.png", m_TrainingSnapshot++);
                 
-                cv::imwrite(filename, m_Unwrapped);
-
+                    cv::imwrite(filename, m_Unwrapped);
+                } 
+                else {
+                    m_MoveTime--;
+                }
                 m_Joystick.drive(m_Motor, Settings::joystickDeadzone);
             }
         }
@@ -345,9 +355,6 @@ private:
             else if(event == Event::Update) {
                 // If it's time to move
                 if(m_MoveTime == 0) {
-                    // Reset move time
-                    m_MoveTime = 10;
-
 	            // Find matching snapshot
         	    float turnToAngle;
                     size_t turnToSnapshot;
@@ -360,7 +367,8 @@ private:
 
                         // If we're well oriented with snapshot, drive forward
                         const float turnMagnitude = fabs(turnToAngle);
-                        if(turnMagnitude < 0.1f) {
+                        if(turnMagnitude < 0.2f) {
+                            m_MoveTime = 5;
                             m_Motor.tank(1.0f, 1.0f);
                         }
                         // Otherwise, turn towards snapshot
@@ -368,6 +376,7 @@ private:
                             const float motorSpeed = (turnMagnitude < 0.2f) ? 0.5f : 1.0f;
                             const float motorTurn = (turnToAngle <  0.0f) ? -motorSpeed : motorSpeed;
                             m_Motor.tank(motorTurn, -motorTurn);
+                            m_MoveTime = 2;
                         }
                     }
                     else {
