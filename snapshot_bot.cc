@@ -28,6 +28,8 @@ namespace Settings
     // What resolution to unwrap panoramas to
     const cv::Size unwrapRes(180, 50);
 
+    const size_t hogDescriptorSize = (unwrapRes.width * unwrapRes.height * 8) / (10 * 10);
+    
     // How large should the deadzone be on the analogue joystick
     const float joystickDeadzone = 0.25f;
 
@@ -49,9 +51,14 @@ class PerfectMemory
 {
 public:
     PerfectMemory(const cv::Size &snapshotRes) 
-    :   m_ScratchImage(snapshotRes, CV_8UC1), m_ScratchImageFloat(snapshotRes, CV_32FC1),
-        m_ScratchXSumFloat(1, snapshotRes.width, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1)
+    :   m_ScratchImage(snapshotRes, CV_8UC1), m_ScratchDescriptors(Settings::hogDescriptorSize)
     {
+        // Configure HOG features
+        m_HOG.winSize = snapshotRes; 
+        m_HOG.blockSize = cv::Size(10, 10);
+        m_HOG.blockStride = cv::Size(10, 10);
+        m_HOG.cellSize = cv::Size(10, 10);
+        m_HOG.nbins = 8;
     }
     
     //------------------------------------------------------------------------
@@ -64,10 +71,17 @@ public:
             char filename[128];
             sprintf(filename, "snapshot_%zu.png", i);
             if(stat(filename, &buffer) == 0) {
-                m_Snapshots.push_back(cv::imread(filename, cv::IMREAD_GRAYSCALE));
-                assert(m_Snapshots.back().cols == m_ScratchImage.cols);
-                assert(m_Snapshots.back().rows == m_ScratchImage.rows);
-                assert(m_Snapshots.back().type() == CV_8UC1);
+                // Load image
+                cv::Mat image = cv::imread(filename, cv::IMREAD_GRAYSCALE);
+                assert(image.cols == m_ScratchImage.cols);
+                assert(image.rows == m_ScratchImage.rows);
+                assert(image.type() == CV_8UC1);
+                
+                // Calculate HOG features
+                m_Snapshots.emplace_back(Settings::hogDescriptorSize);
+                m_HOG.compute(image, m_Snapshots.back());
+                assert(m_Snapshots.back().size() == Settings::hogDescriptorSize);
+                
             }
             else {
                 break;
@@ -82,19 +96,20 @@ public:
         assert(image.rows == m_ScratchImage.rows);
         assert(image.type() == CV_8UC1);
             
-        // Add a new snapshot and make copy of image into it
-        m_Snapshots.emplace_back();
-        image.copyTo(m_Snapshots.back());
-
+        // Add a new snapshot and store HOG coefficients in it
+        m_Snapshots.emplace_back(Settings::hogDescriptorSize);
+        m_HOG.compute(image, m_Snapshots.back());
+        assert(m_Snapshots.back().size() == Settings::hogDescriptorSize);
+        
         char filename[128];
         sprintf(filename, "snapshot_%zu.png", m_Snapshots.size() - 1);
-        cv::imwrite(filename, m_Snapshots.back());
+        cv::imwrite(filename, image);
 
         // Return index of new snapshot
         return (m_Snapshots.size() - 1);
     }
     
-    std::tuple<float, size_t, float> findSnapshot(cv::Mat &image) const
+    std::tuple<float, size_t, float> findSnapshot(cv::Mat &image)
     {
         assert(image.cols == m_ScratchImage.cols);
         assert(image.rows == m_ScratchImage.rows);
@@ -134,23 +149,22 @@ public:
         return std::make_tuple(bestAngle, bestSnapshot, minDifferenceSquared);
     }
     
-    float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot) const
+    float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot)
     {
-        // Calculate absolute difference between image and stored image
-        cv::absdiff(m_Snapshots[snapshot], image, m_ScratchImage);
+        // Calculate HOG descriptors of image
+        m_HOG.compute(image, m_ScratchDescriptors);
+        assert(m_ScratchDescriptors.size() == Settings::hogDescriptorSize);
         
-        // Convert to float
-        m_ScratchImage.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
+        // Calculate square difference between image HOG descriptors and snapshot
+        std::transform(m_Snapshots[snapshot].begin(), m_Snapshots[snapshot].end(), 
+                       m_ScratchDescriptors.begin(), m_ScratchDescriptors.begin(),
+                       [](float a, float b)
+                       {
+                           return (a - b) * (a - b);
+                       });
         
-        // Square 
-        cv::multiply(m_ScratchImageFloat, m_ScratchImageFloat, m_ScratchImageFloat);
-
-        // Reduce difference down twice to get scalar
-        cv::reduce(m_ScratchImageFloat, m_ScratchXSumFloat, 0, CV_REDUCE_SUM);
-        cv::reduce(m_ScratchXSumFloat, m_ScratchSumFloat, 1, CV_REDUCE_SUM);
-        
-        // Extract difference
-        return m_ScratchSumFloat.at<float>(0, 0);
+        // Calculate RMS
+        return sqrt(std::accumulate(m_ScratchDescriptors.begin(), m_ScratchDescriptors.end(), 0.0f));
     }
 
     unsigned int getNumSnapshots() const{ return m_Snapshots.size(); }
@@ -184,11 +198,10 @@ private:
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
-    std::vector<cv::Mat> m_Snapshots;
+    std::vector<float> m_ScratchDescriptors;
+    std::vector<std::vector<float>> m_Snapshots;
     cv::Mat m_ScratchImage;
-    cv::Mat m_ScratchImageFloat;
-    cv::Mat m_ScratchXSumFloat;
-    cv::Mat m_ScratchSumFloat;
+    cv::HOGDescriptor m_HOG;
 };
 
 //------------------------------------------------------------------------
@@ -203,8 +216,8 @@ public:
         m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), unwrapRes)),
         m_Memory(unwrapRes)
     {
-        m_Camera.setExposure(200);
-        
+        m_Camera.setExposure(300);
+        m_Camera.setBrightness(30);
         // If we should load in existing snapshots
         if(load) {
             // Load memory
