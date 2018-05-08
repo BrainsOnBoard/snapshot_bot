@@ -28,12 +28,12 @@ namespace Settings
     // What resolution to unwrap panoramas to
     const cv::Size unwrapRes(180, 50);
 
-    const size_t hogDescriptorSize = (unwrapRes.width * unwrapRes.height * 8) / (10 * 10);
-    
+    // HOG configuration
+    const unsigned int numHOGOrientations = 8;
+    const unsigned int numHOGPixelsPerCell = 10;
+
     // How large should the deadzone be on the analogue joystick
     const float joystickDeadzone = 0.25f;
-
-    const float  threshold = 30.0f;
 }
 
 enum class State
@@ -186,16 +186,22 @@ template<unsigned int scanStep>
 class PerfectMemoryHOG : public PerfectMemoryBase<scanStep>
 {
 public:
-    PerfectMemoryHOG(const cv::Size &snapshotRes)
-    :   PerfectMemoryBase<scanStep>(snapshotRes), m_ScratchDescriptors(Settings::hogDescriptorSize)
+    PerfectMemoryHOG(const cv::Size &snapshotRes, unsigned int numHOGOrientations = 8, unsigned int numHOGPixelsPerCell = 10)
+    :   PerfectMemoryBase<scanStep>(snapshotRes), HOGDescriptorSize((snapshotRes.width * snapshotRes.height * numHOGOrientations) / (numHOGPixelsPerCell * numHOGPixelsPerCell)),
+        m_ScratchDescriptors(HOGDescriptorSize)
     {
         // Configure HOG features
         m_HOG.winSize = snapshotRes; 
-        m_HOG.blockSize = cv::Size(10, 10);
-        m_HOG.blockStride = cv::Size(10, 10);
-        m_HOG.cellSize = cv::Size(10, 10);
-        m_HOG.nbins = 8;
+        m_HOG.blockSize = cv::Size(numHOGPixelsPerCell, numHOGPixelsPerCell);
+        m_HOG.blockStride = cv::Size(numHOGPixelsPerCell, numHOGPixelsPerCell);
+        m_HOG.cellSize = cv::Size(numHOGPixelsPerCell, numHOGPixelsPerCell);
+        m_HOG.nbins = numHOGOrientations;
     }
+
+    //------------------------------------------------------------------------
+    // Constants
+    //------------------------------------------------------------------------
+    const unsigned int HOGDescriptorSize;
 
     //------------------------------------------------------------------------
     // Declared virtuals
@@ -206,9 +212,9 @@ protected:
     // Add a snapshot to memory and return its index
     virtual size_t addSnapshot(const cv::Mat &image) override
     {
-        m_Snapshots.emplace_back(Settings::hogDescriptorSize);
+        m_Snapshots.emplace_back(HOGDescriptorSize);
         m_HOG.compute(image, m_Snapshots.back());
-        assert(m_Snapshots.back().size() == Settings::hogDescriptorSize);
+        assert(m_Snapshots.back().size() == HOGDescriptorSize);
 
         // Return index of new snapshot
         return (m_Snapshots.size() - 1);
@@ -219,7 +225,7 @@ protected:
     {
         // Calculate HOG descriptors of image
         m_HOG.compute(image, m_ScratchDescriptors);
-        assert(m_ScratchDescriptors.size() == Settings::hogDescriptorSize);
+        assert(m_ScratchDescriptors.size() == HOGDescriptorSize);
 
         // Calculate square difference between image HOG descriptors and snapshot
         std::transform(m_Snapshots[snapshot].begin(), m_Snapshots[snapshot].end(),
