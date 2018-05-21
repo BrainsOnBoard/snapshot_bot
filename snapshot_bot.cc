@@ -179,8 +179,16 @@ public:
         assert(image.rows == SnapshotRes.height);
         assert(image.type() == CV_8UC1);
 
-        // Add snapshot and return its index
-        return addSnapshot(image);
+        // Add snapshot
+        const size_t index = addSnapshot(image);
+        
+        // Save snapshot
+        char filename[128];
+        sprintf(filename, "snapshot_%zu.png", index);
+        cv::imwrite(filename, image);
+        
+        // Return index to snapshot
+        return index;
     }
 
     std::tuple<float, size_t, float> findSnapshot(cv::Mat &image) const
@@ -408,7 +416,7 @@ public:
         m_Memory(config.getUnwrapRes())
     {
         // Run auto exposure algorithm
-        const cv::Mat bubblescopeMask = See3CAM_CU40::createBubblescopeMask(config.getCamRes());
+        const cv::Mat bubblescopeMask = See3CAM_CU40::createBubblescopeMask(m_Camera.getSuperPixelSize());
         m_Camera.autoExposure(bubblescopeMask);
 
         // If we should load in existing snapshots
@@ -561,7 +569,8 @@ private:
     OpenCVUnwrap360 m_Unwrapper;
 
     // Perfect memory
-    PerfectMemoryHOG<1> m_Memory;
+    //PerfectMemoryHOG<1> m_Memory;
+    PerfectMemoryRaw<1> m_Memory;
 
     // Motor driver
     MotorI2C m_Motor;
