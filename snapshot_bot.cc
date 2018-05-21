@@ -13,11 +13,14 @@
 #include "common/fsm.h"
 #include "common/joystick.h"
 #include "common/timer.h"
-#include "common/vicon_capture_control.h"
-#include "common/vicon_udp.h"
 #include "imgproc/opencv_unwrap_360.h"
 #include "robots/motor_i2c.h"
+#include "vicon/capture_control.h"
+#include "vicon/udp.h"
 #include "video/see3cam_cu40.h"
+
+// Snapshot bot includes
+#include "config.h"
 
 using namespace GeNNRobotics;
 
@@ -30,143 +33,6 @@ enum class State
     Testing,
 };
 
-//------------------------------------------------------------------------
-// Config
-//------------------------------------------------------------------------
-class Config
-{
-public:
-    Config() : m_CamRes(1280, 720), m_CamDevice(0), m_UnwrapRes(180, 50),
-        m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10), m_JoystickDeadzone(0.25f),
-        m_MoveTimesteps(10), m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}}
-    {
-    }
-
-    //------------------------------------------------------------------------
-    // Public API
-    //------------------------------------------------------------------------
-    const cv::Size &getCamRes() const{ return m_CamRes; }
-    int getCamDevice() const{ return m_CamDevice; }
-
-    const cv::Size &getUnwrapRes() const{ return m_UnwrapRes; }
-
-    int getNumHOGOrientations() const{ return m_NumHOGOrientations; }
-    int getNumHOGPixelsPerCell() const{ return m_NumHOGPixelsPerCell; }
-
-    float getJoystickDeadzone() const{ return m_JoystickDeadzone; }
-
-    int getMoveTimesteps() const{ return m_MoveTimesteps; }
-    
-    float getTurnSpeed(float angleDifference) const
-    {
-        // Loop through turn speed thresholds in descending order
-        for(auto i = m_TurnThresholds.crbegin(); i != m_TurnThresholds.crend(); ++i) {
-            // If the angle difference passes this threshold, return corresponding speed
-            if(angleDifference >= i->first) {
-                return i->second;
-            }
-        }
-        
-        // No turning required!
-        return 0.0f;
-    }
-  
-    Video::See3CAM_CU40::Resolution getSee3CamRes() const
-    {
-        if(m_CamRes.width == 672 && m_CamRes.height == 380) {
-            return Video::See3CAM_CU40::Resolution::_672x380;
-        }
-        else if(m_CamRes.width == 1280 && m_CamRes.height == 720) {
-            return Video::See3CAM_CU40::Resolution::_1280x720;
-        }
-        else if(m_CamRes.width == 1920 && m_CamRes.height == 1080) {
-            return Video::See3CAM_CU40::Resolution::_1920x1080;
-        }
-        else if(m_CamRes.width == 2688 && m_CamRes.height == 1520) {
-            return Video::See3CAM_CU40::Resolution::_2688x1520;
-        }
-        else {
-            throw std::runtime_error("Resolution (" + std::to_string(m_CamRes.width) + "x" + std::to_string(m_CamRes.height) + ") not supported");
-        }
-    }
-
-    void write(cv::FileStorage& fs) const
-    {
-        fs << "{";
-        fs << "camRes" << getCamRes();
-        fs << "camDevice" << getCamDevice();
-        fs << "unwrapRes" << getUnwrapRes();
-        fs << "numHOGOrientations" << getNumHOGOrientations();
-        fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
-        fs << "joystickDeadzone" << getJoystickDeadzone();
-        fs << "moveTimesteps" << getMoveTimesteps();
-        fs << "turnThresholds" << "[";
-        for(const auto &t : m_TurnThresholds) {
-            fs << "[" << t.first << t.second << "]";
-        }
-        fs << "]";
-        fs << "}";
-    }
-
-    void read(const cv::FileNode &node)
-    {
-        // Read settings
-        // **NOTE** we use cv::read rather than stream operators as we want to use current values as defaults
-        cv::read(node["camRes"], m_CamRes, m_CamRes);
-        cv::read(node["camDevice"], m_CamDevice, m_CamDevice);
-        cv::read(node["unwrapRes"], m_UnwrapRes, m_UnwrapRes);
-        cv::read(node["numHOGOrientations"], m_NumHOGOrientations, m_NumHOGOrientations);
-        cv::read(node["numHOGPixelsPerCell"], m_NumHOGPixelsPerCell, m_NumHOGPixelsPerCell);
-        cv::read(node["joystickDeadzone"], m_JoystickDeadzone, m_JoystickDeadzone);
-        cv::read(node["moveTimesteps"], m_MoveTimesteps, m_MoveTimesteps);
-        if(node["turnThresholds"].isSeq()) {
-            m_TurnThresholds.clear();
-            for(const auto &t : node["turnThresholds"]) {
-                assert(t.isSeq() && t.size() == 2);
-                m_TurnThresholds.emplace((float)t[0], (float)t[1]);
-            }
-        }
-    
-    }
-
-private:
-    //------------------------------------------------------------------------
-    // Members
-    //------------------------------------------------------------------------
-    cv::Size m_CamRes;
-    int m_CamDevice;
-    
-    // What resolution to unwrap panoramas to
-    cv::Size m_UnwrapRes;
-
-    // HOG configuration
-    int m_NumHOGOrientations;
-    int m_NumHOGPixelsPerCell;
-
-    // How large should the deadzone be on the analogue joystick
-    float m_JoystickDeadzone;
-    
-    // How many timesteps do we move for before re-calculating IDF
-    int m_MoveTimesteps;
-    
-     // RDF angle difference thresholds that trigger different turning speeds
-    std::map<float, float> m_TurnThresholds;
-};
-
-static void write(cv::FileStorage &fs, const std::string&, const Config &config)
-{
-    config.write(fs);
-}
-
-static void read(const cv::FileNode &node, Config &x, const Config& defaultValue = Config())
-{
-    if(node.empty()) {
-        x = defaultValue;
-    }
-    else {
-        x.read(node);
-    }
-}
 
 //------------------------------------------------------------------------
 // PerfectMemoryBase
@@ -461,6 +327,30 @@ public:
         const cv::Mat bubblescopeMask = Video::See3CAM_CU40::createBubblescopeMask(m_Camera.getSuperPixelSize());
         m_Camera.autoExposure(bubblescopeMask);
 
+        // If we should use Vicon tracking
+        if(m_Config.shouldUseViconTracking()) {
+            // Connect to port specified in config
+            if(!m_ViconTracking.connect(m_Config.getViconTrackingPort())) {
+                throw std::runtime_error("Cannot connect to Vicon tracking system");
+            }
+            
+            // Wait for tracking data stream to begin
+            while(m_ViconTracking.getNumObjects() == 0) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                std::cout << "Waiting for Vicon tracking data object" << std::endl;
+            }
+        }
+        
+        // If we should use Vicon capture control
+        if(m_Config.shouldUseViconCaptureControl()) {
+            // Connect to capture host system specified in config
+            if(!m_ViconCaptureControl.connect(m_Config.getViconCaptureControlHost(), m_Config.getViconCaptureControlPort(),
+                m_Config.getViconCaptureControlPath())) 
+            {
+                throw std::runtime_error("Cannot connect to Vicon capture control");
+            }
+        }
+        
         // If we should load in existing snapshots
         if(load) {
             // Load memory
@@ -624,7 +514,7 @@ private:
     int m_MoveTime;
 
     // Vicon tracking interface
-    Vicon::UDPClient<Vicon::ObjectData> m_Vicon;
+    Vicon::UDPClient<Vicon::ObjectData> m_ViconTracking;
 
     // Vicon capture control interface
     Vicon::CaptureControl m_ViconCaptureControl;
@@ -632,18 +522,20 @@ private:
 
 int main(int argc, char *argv[])
 {
+    const char *configFilename = (argc > 1) ? argv[1] : "config.yaml";
+    
+    // Read config values from file
     Config config;
     {
-        cv::FileStorage configFile("config.yaml", cv::FileStorage::READ);
+        cv::FileStorage configFile(configFilename, cv::FileStorage::READ);
         if(configFile.isOpened()) {
-            std::cout << "Reading config from file" << std::endl;
             configFile["config"] >> config;
         }
     }
 
+    // Re-write config file
     {
-        cv::FileStorage configFile("config.yaml", cv::FileStorage::WRITE);
-        std::cout << "Writing config back to file" << std::endl;
+        cv::FileStorage configFile(configFilename, cv::FileStorage::WRITE);
         configFile << "config" << config;
     }
     
