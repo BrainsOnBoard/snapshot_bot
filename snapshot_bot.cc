@@ -35,7 +35,8 @@ class Config
 {
 public:
     Config() : m_CamRes(1280, 720), m_CamDevice(0), m_UnwrapRes(180, 50),
-        m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10), m_JoystickDeadzone(0.25f)
+        m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10), m_JoystickDeadzone(0.25f),
+        m_MoveTimesteps(10), m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}}
     {
     }
 
@@ -52,6 +53,22 @@ public:
 
     float getJoystickDeadzone() const{ return m_JoystickDeadzone; }
 
+    int getMoveTimesteps() const{ return m_MoveTimesteps; }
+    
+    float getTurnSpeed(float angleDifference) const
+    {
+        // Loop through turn speed thresholds in descending order
+        for(auto i = m_TurnThresholds.crbegin(); i != m_TurnThresholds.crend(); ++i) {
+            // If the angle difference passes this threshold, return corresponding speed
+            if(angleDifference >= i->first) {
+                return i->second;
+            }
+        }
+        
+        // No turning required!
+        return 0.0f;
+    }
+  
     See3CAM_CU40::Resolution getSee3CamRes() const
     {
         if(m_CamRes.width == 672 && m_CamRes.height == 380) {
@@ -80,17 +97,34 @@ public:
         fs << "numHOGOrientations" << getNumHOGOrientations();
         fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
         fs << "joystickDeadzone" << getJoystickDeadzone();
+        fs << "moveTimesteps" << getMoveTimesteps();
+        fs << "turnThresholds" << "[";
+        for(const auto &t : m_TurnThresholds) {
+            fs << "[" << t.first << t.second << "]";
+        }
+        fs << "]";
         fs << "}";
     }
 
     void read(const cv::FileNode &node)
     {
-        node["camRes"] >> m_CamRes;
-        node["camDevice"] >> m_CamDevice;
-        node["unwrapRes"] >> m_UnwrapRes;
-        node["numHOGOrientations"] >> m_NumHOGOrientations;
-        node["numHOGPixelsPerCell"] >> m_NumHOGPixelsPerCell;
-        node["joystickDeadzone"] >> m_JoystickDeadzone;
+        // Read settings
+        // **NOTE** we use cv::read rather than stream operators as we want to use current values as defaults
+        cv::read(node["camRes"], m_CamRes, m_CamRes);
+        cv::read(node["camDevice"], m_CamDevice, m_CamDevice);
+        cv::read(node["unwrapRes"], m_UnwrapRes, m_UnwrapRes);
+        cv::read(node["numHOGOrientations"], m_NumHOGOrientations, m_NumHOGOrientations);
+        cv::read(node["numHOGPixelsPerCell"], m_NumHOGPixelsPerCell, m_NumHOGPixelsPerCell);
+        cv::read(node["joystickDeadzone"], m_JoystickDeadzone, m_JoystickDeadzone);
+        cv::read(node["moveTimesteps"], m_MoveTimesteps, m_MoveTimesteps);
+        if(node["turnThresholds"].isSeq()) {
+            m_TurnThresholds.clear();
+            for(const auto &t : node["turnThresholds"]) {
+                assert(t.isSeq() && t.size() == 2);
+                m_TurnThresholds.emplace((float)t[0], (float)t[1]);
+            }
+        }
+    
     }
 
 private:
@@ -99,7 +133,7 @@ private:
     //------------------------------------------------------------------------
     cv::Size m_CamRes;
     int m_CamDevice;
-
+    
     // What resolution to unwrap panoramas to
     cv::Size m_UnwrapRes;
 
@@ -109,6 +143,12 @@ private:
 
     // How large should the deadzone be on the analogue joystick
     float m_JoystickDeadzone;
+    
+    // How many timesteps do we move for before re-calculating IDF
+    int m_MoveTimesteps;
+    
+     // RDF angle difference thresholds that trigger different turning speeds
+    std::map<float, float> m_TurnThresholds;
 };
 
 static void write(cv::FileStorage &fs, const std::string&, const Config &config)
@@ -486,10 +526,12 @@ private:
                 // Drive motors using joystick
                 m_Joystick.drive(m_Motor, m_Config.getJoystickDeadzone());
                 
+                // If 1st button is pressed, save snapshot
                 if(m_Joystick.isButtonPressed(0)) {
                     const size_t snapshotID = m_Memory.train(m_Unwrapped);
                     std::cout << "\tTrained snapshot id:" << snapshotID << std::endl;
                 }
+                // Otherwise, if 2nd button is pressed, go to testing
                 else if(m_Joystick.isButtonPressed(1)) {
                     m_StateMachine.transition(State::Testing);
                 }
@@ -504,7 +546,7 @@ private:
                 // If it's time to move
                 if(m_MoveTime == 0) {
                     // Reset move time
-                    m_MoveTime = 10;
+                    m_MoveTime = m_Config.getMoveTimesteps();
 
                     // Find matching snapshot
                     float turnToAngle;
@@ -518,15 +560,16 @@ private:
 
                         // If we're well oriented with snapshot, drive forward
                         const float turnMagnitude = fabs(turnToAngle);
-                        if(turnMagnitude < 0.1f) {
-                            m_Motor.tank(1.0f, 1.0f);
-                        }
-                        // Otherwise, turn towards snapshot
-                        else {
-                            const float motorSpeed = (turnMagnitude < 0.2f) ? 0.5f : 1.0f;
-                            const float motorTurn = (turnToAngle <  0.0f) ? -motorSpeed : motorSpeed;
+                        
+                        auto turnSpeed = m_Config.getTurnSpeed(turnMagnitude);
+                        if(turnSpeed > 0.0f) {
+                            const float motorTurn = (turnToAngle <  0.0f) ? -turnSpeed : turnSpeed;
                             m_Motor.tank(motorTurn, -motorTurn);
                         }
+                        else {
+                            m_Motor.tank(1.0f, 1.0f);
+                        }
+                        
                     }
                     else {
                         std::cerr << "No snapshots learned" << std::endl;
@@ -576,7 +619,7 @@ private:
     MotorI2C m_Motor;
 
     // 'Timer' used to move between snapshot tests
-    unsigned int m_MoveTime;
+    int m_MoveTime;
 
     // Vicon tracking interface
     Vicon::UDPClient<Vicon::ObjectData> m_Vicon;
@@ -588,17 +631,21 @@ private:
 int main(int argc, char *argv[])
 {
     Config config;
+    {
+        cv::FileStorage configFile("config.yaml", cv::FileStorage::READ);
+        if(configFile.isOpened()) {
+            std::cout << "Reading config from file" << std::endl;
+            configFile["config"] >> config;
+        }
+    }
 
-    cv::FileStorage configFile("config.yaml", cv::FileStorage::READ);
-    if(configFile.isOpened()) {
-        std::cout << "Reading config from file" << std::endl;
-        configFile["config"] >> config;
+    {
+        cv::FileStorage configFile("config.yaml", cv::FileStorage::WRITE);
+        std::cout << "Writing config back to file" << std::endl;
+        configFile << "config" << config;
     }
-    else {
-        std::cout << "Writing default config" << std::endl;
-        cv::FileStorage writeConfigFile("config.yaml", cv::FileStorage::WRITE);
-        writeConfigFile << "config" << config;
-    }
+    
+   // }
     // Create Vicon UDP interface
     /*Vicon::UDPClient<Vicon::ObjectData> vicon(51001);
 
