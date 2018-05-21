@@ -10,14 +10,16 @@
 #include <sys/stat.h>
 
 // GeNN robotics includes
-#include "fsm.h"
-#include "joystick.h"
-#include "motor_i2c.h"
-#include "opencv_unwrap_360.h"
-#include "see3cam_cu40.h"
-#include "timer.h"
-#include "vicon_capture_control.h"
-#include "vicon_udp.h"
+#include "common/fsm.h"
+#include "common/joystick.h"
+#include "common/timer.h"
+#include "common/vicon_capture_control.h"
+#include "common/vicon_udp.h"
+#include "imgproc/opencv_unwrap_360.h"
+#include "robots/motor_i2c.h"
+#include "video/see3cam_cu40.h"
+
+using namespace GeNNRobotics;
 
 constexpr float pi = 3.141592653589793238462643383279502884f;
 
@@ -69,19 +71,19 @@ public:
         return 0.0f;
     }
   
-    See3CAM_CU40::Resolution getSee3CamRes() const
+    Video::See3CAM_CU40::Resolution getSee3CamRes() const
     {
         if(m_CamRes.width == 672 && m_CamRes.height == 380) {
-            return See3CAM_CU40::Resolution::_672x380;
+            return Video::See3CAM_CU40::Resolution::_672x380;
         }
         else if(m_CamRes.width == 1280 && m_CamRes.height == 720) {
-            return See3CAM_CU40::Resolution::_1280x720;
+            return Video::See3CAM_CU40::Resolution::_1280x720;
         }
         else if(m_CamRes.width == 1920 && m_CamRes.height == 1080) {
-            return See3CAM_CU40::Resolution::_1920x1080;
+            return Video::See3CAM_CU40::Resolution::_1920x1080;
         }
         else if(m_CamRes.width == 2688 && m_CamRes.height == 1520) {
-            return See3CAM_CU40::Resolution::_2688x1520;
+            return Video::See3CAM_CU40::Resolution::_2688x1520;
         }
         else {
             throw std::runtime_error("Resolution (" + std::to_string(m_CamRes.width) + "x" + std::to_string(m_CamRes.height) + ") not supported");
@@ -452,11 +454,11 @@ public:
     :   m_Config(config), m_StateMachine(this, State::Invalid),
         m_Camera("/dev/video" + std::to_string(config.getCamDevice()), config.getSee3CamRes()),
         m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
-        m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), config.getUnwrapRes())),
+        m_Unwrapper(Video::See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), config.getUnwrapRes())),
         m_Memory(config.getUnwrapRes())
     {
         // Run auto exposure algorithm
-        const cv::Mat bubblescopeMask = See3CAM_CU40::createBubblescopeMask(m_Camera.getSuperPixelSize());
+        const cv::Mat bubblescopeMask = Video::See3CAM_CU40::createBubblescopeMask(m_Camera.getSuperPixelSize());
         m_Camera.autoExposure(bubblescopeMask);
 
         // If we should load in existing snapshots
@@ -599,7 +601,7 @@ private:
     FSM<State> m_StateMachine;
 
     // Camera interface
-    See3CAM_CU40 m_Camera;
+    Video::See3CAM_CU40 m_Camera;
 
     // Joystick interface
     Joystick m_Joystick;
@@ -609,14 +611,14 @@ private:
     cv::Mat m_Unwrapped;
 
     // OpenCV-based panorama unwrapper
-    OpenCVUnwrap360 m_Unwrapper;
+    ImgProc::OpenCVUnwrap360 m_Unwrapper;
 
     // Perfect memory
     //PerfectMemoryHOG<1> m_Memory;
     PerfectMemoryRaw<1> m_Memory;
 
     // Motor driver
-    MotorI2C m_Motor;
+    Robots::MotorI2C m_Motor;
 
     // 'Timer' used to move between snapshot tests
     int m_MoveTime;
