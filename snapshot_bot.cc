@@ -16,25 +16,10 @@
 #include "opencv_unwrap_360.h"
 #include "see3cam_cu40.h"
 #include "timer.h"
+#include "vicon_capture_control.h"
+#include "vicon_udp.h"
 
 constexpr float pi = 3.141592653589793238462643383279502884f;
-
-namespace Settings
-{
-    
-    // What resolution to operate camera at
-    const See3CAM_CU40::Resolution camRes = See3CAM_CU40::Resolution::_1280x720;
-
-    // What resolution to unwrap panoramas to
-    const cv::Size unwrapRes(180, 50);
-
-    // HOG configuration
-    const unsigned int numHOGOrientations = 8;
-    const unsigned int numHOGPixelsPerCell = 10;
-
-    // How large should the deadzone be on the analogue joystick
-    const float joystickDeadzone = 0.25f;
-}
 
 enum class State
 {
@@ -42,6 +27,104 @@ enum class State
     Training,
     Testing,
 };
+
+//------------------------------------------------------------------------
+// Config
+//------------------------------------------------------------------------
+class Config
+{
+public:
+    Config() : m_CamRes(1280, 720), m_CamDevice(0), m_UnwrapRes(180, 50),
+        m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10), m_JoystickDeadzone(0.25f)
+    {
+    }
+
+    //------------------------------------------------------------------------
+    // Public API
+    //------------------------------------------------------------------------
+    const cv::Size &getCamRes() const{ return m_CamRes; }
+    int getCamDevice() const{ return m_CamDevice; }
+
+    const cv::Size &getUnwrapRes() const{ return m_UnwrapRes; }
+
+    int getNumHOGOrientations() const{ return m_NumHOGOrientations; }
+    int getNumHOGPixelsPerCell() const{ return m_NumHOGPixelsPerCell; }
+
+    float getJoystickDeadzone() const{ return m_JoystickDeadzone; }
+
+    See3CAM_CU40::Resolution getSee3CamRes() const
+    {
+        if(m_CamRes.width == 672 && m_CamRes.height == 380) {
+            return See3CAM_CU40::Resolution::_672x380;
+        }
+        else if(m_CamRes.width == 1280 && m_CamRes.height == 720) {
+            return See3CAM_CU40::Resolution::_1280x720;
+        }
+        else if(m_CamRes.width == 1920 && m_CamRes.height == 1080) {
+            return See3CAM_CU40::Resolution::_1920x1080;
+        }
+        else if(m_CamRes.width == 2688 && m_CamRes.height == 1520) {
+            return See3CAM_CU40::Resolution::_2688x1520;
+        }
+        else {
+            throw std::runtime_error("Resolution (" + std::to_string(m_CamRes.width) + "x" + std::to_string(m_CamRes.height) + ") not supported");
+        }
+    }
+
+    void write(cv::FileStorage& fs) const
+    {
+        fs << "{";
+        fs << "camRes" << getCamRes();
+        fs << "camDevice" << getCamDevice();
+        fs << "unwrapRes" << getUnwrapRes();
+        fs << "numHOGOrientations" << getNumHOGOrientations();
+        fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
+        fs << "joystickDeadzone" << getJoystickDeadzone();
+        fs << "}";
+    }
+
+    void read(const cv::FileNode &node)
+    {
+        node["camRes"] >> m_CamRes;
+        node["camDevice"] >> m_CamDevice;
+        node["unwrapRes"] >> m_UnwrapRes;
+        node["numHOGOrientations"] >> m_NumHOGOrientations;
+        node["numHOGPixelsPerCell"] >> m_NumHOGPixelsPerCell;
+        node["joystickDeadzone"] >> m_JoystickDeadzone;
+    }
+
+private:
+    //------------------------------------------------------------------------
+    // Members
+    //------------------------------------------------------------------------
+    cv::Size m_CamRes;
+    int m_CamDevice;
+
+    // What resolution to unwrap panoramas to
+    cv::Size m_UnwrapRes;
+
+    // HOG configuration
+    int m_NumHOGOrientations;
+    int m_NumHOGPixelsPerCell;
+
+    // How large should the deadzone be on the analogue joystick
+    float m_JoystickDeadzone;
+};
+
+static void write(cv::FileStorage &fs, const std::string&, const Config &config)
+{
+    config.write(fs);
+}
+
+static void read(const cv::FileNode &node, Config &x, const Config& defaultValue = Config())
+{
+    if(node.empty()) {
+        x = defaultValue;
+    }
+    else {
+        x.read(node);
+    }
+}
 
 //------------------------------------------------------------------------
 // PerfectMemoryBase
@@ -317,14 +400,17 @@ private:
 class RobotFSM : FSM<State>::StateHandler
 {
 public:
-    RobotFSM(unsigned int camDevice, See3CAM_CU40::Resolution camRes, const cv::Size &unwrapRes, bool load) 
-    :   m_StateMachine(this, State::Invalid), m_Camera("/dev/video" + std::to_string(camDevice), camRes),
-        m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(unwrapRes, CV_8UC1),
-        m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), unwrapRes)),
-        m_Memory(unwrapRes)
+    RobotFSM(const Config &config, bool load)
+    :   m_Config(config), m_StateMachine(this, State::Invalid),
+        m_Camera("/dev/video" + std::to_string(config.getCamDevice()), config.getSee3CamRes()),
+        m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
+        m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), config.getUnwrapRes())),
+        m_Memory(config.getUnwrapRes())
     {
-        m_Camera.setExposure(300);
-        m_Camera.setBrightness(30);
+        // Run auto exposure algorithm
+        const cv::Mat bubblescopeMask = See3CAM_CU40::createBubblescopeMask(config.getCamRes());
+        m_Camera.autoExposure(bubblescopeMask);
+
         // If we should load in existing snapshots
         if(load) {
             // Load memory
@@ -390,7 +476,7 @@ private:
             }
             else if(event == Event::Update) {
                 // Drive motors using joystick
-                m_Joystick.drive(m_Motor, Settings::joystickDeadzone);
+                m_Joystick.drive(m_Motor, m_Config.getJoystickDeadzone());
                 
                 if(m_Joystick.isButtonPressed(0)) {
                     const size_t snapshotID = m_Memory.train(m_Unwrapped);
@@ -412,10 +498,10 @@ private:
                     // Reset move time
                     m_MoveTime = 10;
 
-	            // Find matching snapshot
-        	    float turnToAngle;
+                    // Find matching snapshot
+                    float turnToAngle;
                     size_t turnToSnapshot;
-              	    float minDifferenceSquared;
+                    float minDifferenceSquared;
                     std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory.findSnapshot(m_Unwrapped);
 
                     // If a snapshot is found and it isn't the one we were previously at
@@ -455,6 +541,9 @@ private:
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
+    // Configuration
+    const Config &m_Config;
+
     // State machine
     FSM<State> m_StateMachine;
 
@@ -479,12 +568,48 @@ private:
 
     // 'Timer' used to move between snapshot tests
     unsigned int m_MoveTime;
+
+    // Vicon tracking interface
+    Vicon::UDPClient<Vicon::ObjectData> m_Vicon;
+
+    // Vicon capture control interface
+    Vicon::CaptureControl m_ViconCaptureControl;
 };
 
 int main(int argc, char *argv[])
 {
+    Config config;
+
+    cv::FileStorage configFile("config.yaml", cv::FileStorage::READ);
+    if(configFile.isOpened()) {
+        std::cout << "Reading config from file" << std::endl;
+        configFile["config"] >> config;
+    }
+    else {
+        std::cout << "Writing default config" << std::endl;
+        cv::FileStorage writeConfigFile("config.yaml", cv::FileStorage::WRITE);
+        writeConfigFile << "config" << config;
+    }
+    // Create Vicon UDP interface
+    /*Vicon::UDPClient<Vicon::ObjectData> vicon(51001);
+
+    // Create Vicon capture control interface
+    Vicon::CaptureControl viconCaptureControl("192.168.1.100", 3003,
+                                              "c:\\users\\ad374\\Desktop");
+
+    // Wait for tracking
+    while(vicon.getNumObjects() == 0) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::cout << "Waiting for object" << std::endl;
+    }
+
+    // Start capture
+    if(!viconCaptureControl.startRecording("camera_recorder")) {
+        return EXIT_FAILURE;
+    }*/
+
     const bool load = (argc > 1);
-    RobotFSM robot(0, Settings::camRes, Settings::unwrapRes, load);
+    RobotFSM robot(config, load);
     
     {
         Timer<> timer("Total time:");
