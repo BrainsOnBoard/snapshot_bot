@@ -1,11 +1,10 @@
 // Standard C++ includes
+#include <fstream>
 #include <limits>
 #include <memory>
 
 // Standard C includes
 #include <cassert>
-
-
 
 // GeNN robotics includes
 #include "common/fsm.h"
@@ -65,6 +64,12 @@ public:
             while(m_ViconTracking.getNumObjects() == 0) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 std::cout << "Waiting for Vicon tracking data object" << std::endl;
+            }
+            
+            // If we're training, open CSV file and write header
+            if(m_Config.shouldTrain()) {
+                m_SnapshotLogFile.open("snapshots.csv");
+                m_SnapshotLogFile << "Snapshot, Frame, X, Y, Z, Rx, Ry, Rz" << std::endl;
             }
         }
         
@@ -149,6 +154,17 @@ private:
                 if(m_Joystick.isButtonPressed(0)) {
                     const size_t snapshotID = m_Memory->train(m_Unwrapped);
                     std::cout << "\tTrained snapshot id:" << snapshotID << std::endl;
+                    
+                    // If Vicon tracking is available
+                    if(m_Config.shouldUseViconTracking()) {
+                        // Get tracking data
+                        auto objectData = m_ViconTracking.getObjectData(0);
+                        const auto &translation = objectData.getTranslation();
+                        const auto &rotation = objectData.getRotation();
+
+                        // Write to CSV
+                        m_SnapshotLogFile << snapshotID << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2] << std::endl;
+                    }
                 }
                 // Otherwise, if 2nd button is pressed, go to testing
                 else if(m_Joystick.isButtonPressed(1)) {
@@ -245,6 +261,9 @@ private:
 
     // Vicon capture control interface
     Vicon::CaptureControl m_ViconCaptureControl;
+    
+    // CSV file containing snapshot metadata
+    std::ofstream m_SnapshotLogFile;
 };
 
 int main(int argc, char *argv[])
@@ -266,25 +285,6 @@ int main(int argc, char *argv[])
         configFile << "config" << config;
     }
     
-   // }
-    // Create Vicon UDP interface
-    /*Vicon::UDPClient<Vicon::ObjectData> vicon(51001);
-
-    // Create Vicon capture control interface
-    Vicon::CaptureControl viconCaptureControl("192.168.1.100", 3003,
-                                              "c:\\users\\ad374\\Desktop");
-
-    // Wait for tracking
-    while(vicon.getNumObjects() == 0) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        std::cout << "Waiting for object" << std::endl;
-    }
-
-    // Start capture
-    if(!viconCaptureControl.startRecording("camera_recorder")) {
-        return EXIT_FAILURE;
-    }*/
-
     RobotFSM robot(config);
     
     {
