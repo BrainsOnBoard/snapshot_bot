@@ -454,7 +454,7 @@ public:
     :   m_Config(config), m_StateMachine(this, State::Invalid),
         m_Camera("/dev/video" + std::to_string(config.getCamDevice()), config.getSee3CamRes()),
         m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
-        m_Unwrapper(Video::See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), config.getUnwrapRes())),
+        m_Unwrapper(m_Camera.createDefaultUnwrapper(config.getUnwrapRes())),
         m_Memory(config.getUnwrapRes())
     {
         // Run auto exposure algorithm
