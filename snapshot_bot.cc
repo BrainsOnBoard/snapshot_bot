@@ -1,5 +1,6 @@
 // Standard C++ includes
 #include <limits>
+#include <memory>
 #include <tuple>
 #include <vector>
 
@@ -185,16 +186,19 @@ template<unsigned int scanStep>
 class PerfectMemoryHOG : public PerfectMemoryBase<scanStep>
 {
 public:
-    PerfectMemoryHOG(const cv::Size &snapshotRes, unsigned int numHOGOrientations = 8, unsigned int numHOGPixelsPerCell = 10)
-    :   PerfectMemoryBase<scanStep>(snapshotRes), HOGDescriptorSize((snapshotRes.width * snapshotRes.height * numHOGOrientations) / (numHOGPixelsPerCell * numHOGPixelsPerCell)),
+    PerfectMemoryHOG(const Config &config)
+    :   PerfectMemoryBase<scanStep>(config.getUnwrapRes()), 
+        HOGDescriptorSize(config.getHOGDescriptorSize()),
         m_ScratchDescriptors(HOGDescriptorSize)
     {
+        std::cout << "Creating perfect memory for HOG features" << std::endl;
+        
         // Configure HOG features
-        m_HOG.winSize = snapshotRes; 
-        m_HOG.blockSize = cv::Size(numHOGPixelsPerCell, numHOGPixelsPerCell);
-        m_HOG.blockStride = cv::Size(numHOGPixelsPerCell, numHOGPixelsPerCell);
-        m_HOG.cellSize = cv::Size(numHOGPixelsPerCell, numHOGPixelsPerCell);
-        m_HOG.nbins = numHOGOrientations;
+        m_HOG.winSize = config.getUnwrapRes(); 
+        m_HOG.blockSize = cv::Size(config.getNumHOGPixelsPerCell(), config.getNumHOGPixelsPerCell());
+        m_HOG.blockStride = cv::Size(config.getNumHOGPixelsPerCell(), config.getNumHOGPixelsPerCell());
+        m_HOG.cellSize = cv::Size(config.getNumHOGPixelsPerCell(), config.getNumHOGPixelsPerCell());
+        m_HOG.nbins = config.getNumHOGOrientations();
     }
 
     //------------------------------------------------------------------------
@@ -254,10 +258,12 @@ template<unsigned int scanStep>
 class PerfectMemoryRaw : public PerfectMemoryBase<scanStep>
 {
 public:
-    PerfectMemoryRaw(const cv::Size &snapshotRes)
-    :   PerfectMemoryBase<scanStep>(snapshotRes), m_ScratchImage(snapshotRes, CV_8UC1), m_ScratchImageFloat(snapshotRes, CV_32FC1),
-        m_ScratchXSumFloat(1, snapshotRes.width, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1)
+    PerfectMemoryRaw(const Config &config)
+    :   PerfectMemoryBase<scanStep>(config.getUnwrapRes()), 
+        m_ScratchImage(config.getUnwrapRes(), CV_8UC1), m_ScratchImageFloat(config.getUnwrapRes(), CV_32FC1),
+        m_ScratchXSumFloat(1, config.getUnwrapRes().width, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1)
     {
+        std::cout << "Creating perfect memory for raw images" << std::endl;
     }
 
     //------------------------------------------------------------------------
@@ -316,13 +322,20 @@ private:
 class RobotFSM : FSM<State>::StateHandler
 {
 public:
-    RobotFSM(const Config &config, bool load)
+    RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid),
         m_Camera("/dev/video" + std::to_string(config.getCamDevice()), config.getSee3CamRes()),
         m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
-        m_Unwrapper(m_Camera.createDefaultUnwrapper(config.getUnwrapRes())),
-        m_Memory(config.getUnwrapRes())
+        m_Unwrapper(m_Camera.createDefaultUnwrapper(config.getUnwrapRes()))
     {
+        // Create appropriate type of memory
+        if(config.shouldUseHOG()) {
+            m_Memory.reset(new PerfectMemoryHOG<1>(config));
+        }
+        else {
+            m_Memory.reset(new PerfectMemoryRaw<1>(config));
+        }
+        
         // Run auto exposure algorithm
         const cv::Mat bubblescopeMask = Video::See3CAM_CU40::createBubblescopeMask(m_Camera.getSuperPixelSize());
         m_Camera.autoExposure(bubblescopeMask);
@@ -351,20 +364,20 @@ public:
             }
         }
         
-        // If we should load in existing snapshots
-        if(load) {
-            // Load memory
-            m_Memory.load();
-            
-            // Start directly in testing state
-            m_StateMachine.transition(State::Testing);
-        }
-        else {
-            // Delete old snapshots
+        // If we should train
+        if(m_Config.shouldTrain()) {
+             // Delete old snapshots
             system("rm -f snapshot_*.png");
 
             // Start in training state
             m_StateMachine.transition(State::Training);
+        }
+        else {
+            // Load memory
+            m_Memory->load();
+            
+            // Start directly in testing state
+            m_StateMachine.transition(State::Testing);
         }
     }
     
@@ -420,7 +433,7 @@ private:
                 
                 // If 1st button is pressed, save snapshot
                 if(m_Joystick.isButtonPressed(0)) {
-                    const size_t snapshotID = m_Memory.train(m_Unwrapped);
+                    const size_t snapshotID = m_Memory->train(m_Unwrapped);
                     std::cout << "\tTrained snapshot id:" << snapshotID << std::endl;
                 }
                 // Otherwise, if 2nd button is pressed, go to testing
@@ -444,7 +457,7 @@ private:
                     float turnToAngle;
                     size_t turnToSnapshot;
                     float minDifferenceSquared;
-                    std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory.findSnapshot(m_Unwrapped);
+                    std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory->findSnapshot(m_Unwrapped);
 
                     // If a snapshot is found and it isn't the one we were previously at
                     if(turnToSnapshot != std::numeric_limits<size_t>::max()) {
@@ -504,8 +517,7 @@ private:
     ImgProc::OpenCVUnwrap360 m_Unwrapper;
 
     // Perfect memory
-    //PerfectMemoryHOG<1> m_Memory;
-    PerfectMemoryRaw<1> m_Memory;
+    std::unique_ptr<PerfectMemoryBase<1>> m_Memory;
 
     // Motor driver
     Robots::MotorI2C m_Motor;
@@ -558,8 +570,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }*/
 
-    const bool load = (argc > 1);
-    RobotFSM robot(config, load);
+    RobotFSM robot(config);
     
     {
         Timer<> timer("Total time:");
