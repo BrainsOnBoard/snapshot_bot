@@ -44,6 +44,7 @@ public:
     int getViconTrackingPort() const{ return m_ViconTrackingPort; }
     
     bool shouldUseViconCaptureControl() const{ return m_ShouldUseViconCaptureControl; }
+    const std::string &getViconCaptureControlName() const{ return m_ViconCaptureControlName; }
     const std::string &getViconCaptureControlHost() const{ return m_ViconCaptureControlHost; }
     int getViconCaptureControlPort() const { return m_ViconCaptureControlPort; }
     const std::string &getViconCaptureControlPath() const{ return m_ViconCaptureControlPath; }
@@ -109,6 +110,7 @@ public:
         
         if(shouldUseViconCaptureControl()) {
             fs << "viconCaptureControl" << "{";
+            fs << "name" << getViconCaptureControlName();
             fs << "host" << getViconCaptureControlHost();
             fs << "port" << getViconCaptureControlPort();
             fs << "path" << getViconCaptureControlPath();
@@ -148,6 +150,7 @@ public:
         const auto &viconCaptureControl = node["viconCaptureControl"];
         if(viconCaptureControl.isMap()) {
             m_ShouldUseViconCaptureControl = true;
+            viconCaptureControl["name"] >> m_ViconCaptureControlName;
             viconCaptureControl["host"] >> m_ViconCaptureControlHost;
             viconCaptureControl["port"] >> m_ViconCaptureControlPort;
             viconCaptureControl["path"] >> m_ViconCaptureControlPath;
@@ -191,6 +194,7 @@ private:
     
     // Vicon capture control settings
     bool m_ShouldUseViconCaptureControl;
+    std::string m_ViconCaptureControlName;
     std::string m_ViconCaptureControlHost;
     int m_ViconCaptureControlPort;
     std::string m_ViconCaptureControlPath;

@@ -81,6 +81,11 @@ public:
             {
                 throw std::runtime_error("Cannot connect to Vicon capture control");
             }
+            
+            // Start capture
+            if(!m_ViconCaptureControl.startRecording(m_Config.getViconCaptureControlName())) {
+                throw std::runtime_error("Cannot start capture");
+            }
         }
         
         // If we should train
@@ -130,6 +135,13 @@ private:
             
             // Exit if button 2 is pressed
             if(m_Joystick.isButtonPressed(2)) {
+                 // If we should use Vicon capture control
+                if(m_Config.shouldUseViconCaptureControl()) {
+                    // Stop capture
+                    if(!m_ViconCaptureControl.stopRecording(m_Config.getViconCaptureControlName())) {
+                        throw std::runtime_error("Cannot stop capture");
+                    }
+                }
                 return false;
             }
 
