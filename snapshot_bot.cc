@@ -65,12 +65,6 @@ public:
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 std::cout << "Waiting for Vicon tracking data object" << std::endl;
             }
-            
-            // If we're training, open CSV file and write header
-            if(m_Config.shouldTrain()) {
-                m_SnapshotLogFile.open("snapshots.csv");
-                m_SnapshotLogFile << "Snapshot, Frame, X, Y, Z, Rx, Ry, Rz" << std::endl;
-            }
         }
         
         // If we should use Vicon capture control
@@ -90,6 +84,11 @@ public:
         
         // If we should train
         if(m_Config.shouldTrain()) {
+            // If Vicon tracking is available, open log file and write header
+            if(m_Config.shouldUseViconTracking()) {
+                m_LogFile.open("snapshots.csv");
+                m_LogFile << "Snapshot, Frame, X, Y, Z, Rx, Ry, Rz" << std::endl;
+            }
              // Delete old snapshots
             system("rm -f snapshot_*.png");
 
@@ -97,6 +96,17 @@ public:
             m_StateMachine.transition(State::Training);
         }
         else {
+            // If Vicon tracking is available, open log file and write header
+            if(m_Config.shouldUseViconTracking()) {
+                m_LogFile.open("testing.csv");
+                m_LogFile << "Best snapshot, angle difference, image difference, frame number, X, Y, Z, Rx, Ry, Rz" << std::endl;
+            }
+            // Otherwise, open log file and write simpler header
+            else {
+                m_LogFile.open("testing.csv");
+                m_LogFile << "Best snapshot, angle difference, image difference" << std::endl;
+            }
+            
             // Load memory
             m_Memory->load();
             
@@ -175,7 +185,7 @@ private:
                         const auto &rotation = objectData.getRotation();
 
                         // Write to CSV
-                        m_SnapshotLogFile << snapshotID << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2] << std::endl;
+                        m_LogFile << snapshotID << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2] << std::endl;
                     }
                 }
                 // Otherwise, if 2nd button is pressed, go to testing
@@ -205,6 +215,21 @@ private:
                     if(turnToSnapshot != std::numeric_limits<size_t>::max()) {
                         std::cout << "\tBest match found with snapshot id " << turnToSnapshot << " (angle:" << turnToAngle << ", min difference:" << minDifferenceSquared << ")" << std::endl;
 
+                        // Write basic data to log file
+                        m_LogFile << turnToSnapshot << ", " << turnToAngle << ", " << minDifferenceSquared;
+                        
+                        // If vicon tracking is available
+                        if(m_Config.shouldUseViconTracking()) {
+                            // Get tracking data
+                            auto objectData = m_ViconTracking.getObjectData(0);
+                            const auto &translation = objectData.getTranslation();
+                            const auto &rotation = objectData.getRotation();
+                            
+                            // Write extra logging data
+                            m_LogFile << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2];
+                        }
+                        m_LogFile << std::endl;
+                        
                         // Determine how fast we should turn based on the absolute angle
                         auto turnSpeed = m_Config.getTurnSpeed(fabs(turnToAngle));
                         
@@ -274,8 +299,8 @@ private:
     // Vicon capture control interface
     Vicon::CaptureControl m_ViconCaptureControl;
     
-    // CSV file containing snapshot metadata
-    std::ofstream m_SnapshotLogFile;
+    // CSV file containing logging
+    std::ofstream m_LogFile;
 };
 
 int main(int argc, char *argv[])
