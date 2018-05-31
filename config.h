@@ -5,6 +5,7 @@
 #include <string>
 
 // GeNN robotics includes
+#include "third_party/path.h"
 #include "video/see3cam_cu40.h"
 
 //------------------------------------------------------------------------
@@ -24,14 +25,15 @@ public:
     //------------------------------------------------------------------------
     // Public API
     //------------------------------------------------------------------------
+    bool shouldUseHOG() const{ return m_ShouldUseHOG; }
     bool shouldTrain() const{ return m_ShouldTrain; }
     
+    const filesystem::path &getOutputPath() const{ return m_OutputPath; }
+
     const cv::Size &getCamRes() const{ return m_CamRes; }
     int getCamDevice() const{ return m_CamDevice; }
-
     const cv::Size &getUnwrapRes() const{ return m_UnwrapRes; }
 
-    bool shouldUseHOG() const{ return m_ShouldUseHOG; }
     int getNumHOGOrientations() const{ return m_NumHOGOrientations; }
     int getNumHOGPixelsPerCell() const{ return m_NumHOGPixelsPerCell; }
     int getHOGDescriptorSize() const{ return (getUnwrapRes().width * getUnwrapRes().height * getNumHOGOrientations()) / (getNumHOGPixelsPerCell() * getNumHOGPixelsPerCell()); }
@@ -88,6 +90,7 @@ public:
     {
         fs << "{";
         fs << "shouldUseHOG" << shouldUseHOG();
+        fs << "outputPath" << getOutputPath().str();
         fs << "camRes" << getCamRes();
         fs << "camDevice" << getCamDevice();
         fs << "unwrapRes" << getUnwrapRes();
@@ -123,6 +126,11 @@ public:
     {
         // Read settings
         // **NOTE** we use cv::read rather than stream operators as we want to use current values as defaults
+        // **YUCK** why does OpenCV (at least my version) not have a cv::read overload for std::string!?
+        cv::String outputPath;
+        cv::read(node["outputPath"], outputPath, m_OutputPath.str());
+        m_OutputPath = (std::string)outputPath;
+
         cv::read(node["shouldUseHOG"], m_ShouldUseHOG, m_ShouldUseHOG);
         cv::read(node["camRes"], m_CamRes, m_CamRes);
         cv::read(node["camDevice"], m_CamDevice, m_CamDevice);
@@ -168,6 +176,9 @@ private:
     // Should we start in training mode or use existing data?
     bool m_ShouldTrain;
     
+    // Path to store snapshots etc
+    filesystem::path m_OutputPath;
+
     // Camera properties
     cv::Size m_CamRes;
     int m_CamDevice;

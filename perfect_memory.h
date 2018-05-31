@@ -8,11 +8,14 @@
 #include <cassert>
 #include <cstdlib>
 
-// POSIX includes
-#include <sys/stat.h>
-
 // OpenCV includes
 #include <opencv2/opencv.hpp>
+
+// GeNN robotics includes
+#include "third_party/path.h"
+
+// Snapshot bot includes
+#include "config.h"
 
 //------------------------------------------------------------------------
 // PerfectMemoryBase
@@ -21,7 +24,7 @@ template<unsigned int scanStep>
 class PerfectMemoryBase
 {
 public:
-    PerfectMemoryBase(const cv::Size &snapshotRes) : SnapshotRes(snapshotRes)
+    PerfectMemoryBase(const Config &config) : SnapshotRes(config.getUnwrapRes()), m_OutputPath(config.getOutputPath())
     {
     }
 
@@ -40,13 +43,11 @@ public:
     //------------------------------------------------------------------------
     void load()
     {
-        struct stat buffer;
         for(size_t i = 0;;i++) {
-            char filename[128];
-            sprintf(filename, "snapshot_%zu.png", i);
-            if(stat(filename, &buffer) == 0) {
+            const auto filename = getSnapshotPath(i);
+            if(filename.exists()) {
                 // Load image
-                cv::Mat image = cv::imread(filename, cv::IMREAD_GRAYSCALE);
+                cv::Mat image = cv::imread(filename.str(), cv::IMREAD_GRAYSCALE);
                 assert(image.cols == SnapshotRes.width);
                 assert(image.rows == SnapshotRes.height);
                 assert(image.type() == CV_8UC1);
@@ -71,9 +72,7 @@ public:
         const size_t index = addSnapshot(image);
         
         // Save snapshot
-        char filename[128];
-        sprintf(filename, "snapshot_%zu.png", index);
-        cv::imwrite(filename, image);
+        cv::imwrite(getSnapshotPath(index).str(), image);
         
         // Return index to snapshot
         return index;
@@ -133,6 +132,14 @@ protected:
 
 private:
     //------------------------------------------------------------------------
+    // Private methods
+    //------------------------------------------------------------------------
+    filesystem::path getSnapshotPath(size_t index) const
+    {
+        return m_OutputPath / ("snapshot_" + std::to_string(index) + ".png");
+    }
+
+    //------------------------------------------------------------------------
     // Private static methods
     //------------------------------------------------------------------------
     // 'Rolls' an image scanStep to the left
@@ -156,6 +163,11 @@ private:
             std::copy(rollBuffer.begin(), rollBuffer.end(), rowPtr + (image.cols - scanStep));
         }
     }
+
+    //------------------------------------------------------------------------
+    // Members
+    //------------------------------------------------------------------------
+    const filesystem::path &m_OutputPath;
 };
 
 
@@ -167,7 +179,7 @@ class PerfectMemoryHOG : public PerfectMemoryBase<scanStep>
 {
 public:
     PerfectMemoryHOG(const Config &config)
-    :   PerfectMemoryBase<scanStep>(config.getUnwrapRes()), 
+    :   PerfectMemoryBase<scanStep>(config),
         HOGDescriptorSize(config.getHOGDescriptorSize()),
         m_ScratchDescriptors(HOGDescriptorSize)
     {
@@ -239,7 +251,7 @@ class PerfectMemoryRaw : public PerfectMemoryBase<scanStep>
 {
 public:
     PerfectMemoryRaw(const Config &config)
-    :   PerfectMemoryBase<scanStep>(config.getUnwrapRes()), 
+    :   PerfectMemoryBase<scanStep>(config),
         m_ScratchImage(config.getUnwrapRes(), CV_8UC1), m_ScratchImageFloat(config.getUnwrapRes(), CV_32FC1),
         m_ScratchXSumFloat(1, config.getUnwrapRes().width, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1)
     {

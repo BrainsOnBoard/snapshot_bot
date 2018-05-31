@@ -12,6 +12,7 @@
 #include "common/timer.h"
 #include "imgproc/opencv_unwrap_360.h"
 #include "robots/motor_i2c.h"
+#include "third_party/path.h"
 #include "vicon/capture_control.h"
 #include "vicon/udp.h"
 #include "video/see3cam_cu40.h"
@@ -41,12 +42,15 @@ public:
         m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
         m_Unwrapper(m_Camera.createDefaultUnwrapper(config.getUnwrapRes()))
     {
+        // Create output directory (if necessary)
+        filesystem::create_directory(m_Config.getOutputPath());
+
         // Create appropriate type of memory
-        if(config.shouldUseHOG()) {
-            m_Memory.reset(new PerfectMemoryHOG<1>(config));
+        if(m_Config.shouldUseHOG()) {
+            m_Memory.reset(new PerfectMemoryHOG<1>(m_Config));
         }
         else {
-            m_Memory.reset(new PerfectMemoryRaw<1>(config));
+            m_Memory.reset(new PerfectMemoryRaw<1>(m_Config));
         }
         
         // Run auto exposure algorithm
@@ -84,29 +88,10 @@ public:
         
         // If we should train
         if(m_Config.shouldTrain()) {
-            // If Vicon tracking is available, open log file and write header
-            if(m_Config.shouldUseViconTracking()) {
-                m_LogFile.open("snapshots.csv");
-                m_LogFile << "Snapshot, Frame, X, Y, Z, Rx, Ry, Rz" << std::endl;
-            }
-             // Delete old snapshots
-            system("rm -f snapshot_*.png");
-
             // Start in training state
             m_StateMachine.transition(State::Training);
         }
         else {
-            // If Vicon tracking is available, open log file and write header
-            if(m_Config.shouldUseViconTracking()) {
-                m_LogFile.open("testing.csv");
-                m_LogFile << "Best snapshot, angle difference, image difference, frame number, X, Y, Z, Rx, Ry, Rz" << std::endl;
-            }
-            // Otherwise, open log file and write simpler header
-            else {
-                m_LogFile.open("testing.csv");
-                m_LogFile << "Best snapshot, angle difference, image difference" << std::endl;
-            }
-            
             // Load memory
             m_Memory->load();
             
@@ -167,6 +152,20 @@ private:
         if(state == State::Training) {
             if(event == Event::Enter) {
                 std::cout << "Starting training" << std::endl;
+
+                // Close log file if it's already open
+                if(m_LogFile.is_open()) {
+                    m_LogFile.close();
+                }
+
+                // If Vicon tracking is available, open log file and write header
+                if(m_Config.shouldUseViconTracking()) {
+                    m_LogFile.open((m_Config.getOutputPath() / "snapshots.csv").str());
+                    m_LogFile << "Snapshot, Frame, X, Y, Z, Rx, Ry, Rz" << std::endl;
+                }
+
+                // Delete old snapshots
+                system("rm -f snapshot_*.png");
             }
             else if(event == Event::Update) {
                 // Drive motors using joystick
@@ -197,7 +196,27 @@ private:
         else if(state == State::Testing) {
             if(event == Event::Enter) {
                 std::cout << "Testing: finding snapshot" << std::endl;
+
+                // Close log file if it's already open
+                if(m_LogFile.is_open()) {
+                    m_LogFile.close();
+                }
+
+                // Open log file
+                m_LogFile.open((m_Config.getOutputPath() / "testing.csv").str());
+
+                // If Vicon tracking is available, write extended header
+                if(m_Config.shouldUseViconTracking()) {
+                    m_LogFile << "Best snapshot, angle difference, image difference, frame number, X, Y, Z, Rx, Ry, Rz" << std::endl;
+                }
+                // Otherwise, write basic header
+                else {
+                    m_LogFile << "Best snapshot, angle difference, image difference" << std::endl;
+                }
                 m_MoveTime  = 0;
+
+                // Delete old testing images
+                system("rm -f test_*.png");
             }
             else if(event == Event::Update) {
                 // If it's time to move
