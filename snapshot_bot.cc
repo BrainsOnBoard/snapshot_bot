@@ -202,18 +202,24 @@ private:
                     m_LogFile.close();
                 }
 
-                // Open log file
-                m_LogFile.open((m_Config.getOutputPath() / "testing.csv").str());
+                // If we should save diagnostics when testing
+                if(m_Config.shouldSaveTestingDiagnostic()) {
+                    // Open log file
+                    m_LogFile.open((m_Config.getOutputPath() / "testing.csv").str());
 
-                // If Vicon tracking is available, write extended header
-                if(m_Config.shouldUseViconTracking()) {
-                    m_LogFile << "Best snapshot, angle difference, image difference, frame number, X, Y, Z, Rx, Ry, Rz" << std::endl;
+                    // If Vicon tracking is available, write extended header
+                    if(m_Config.shouldUseViconTracking()) {
+                        m_LogFile << "Test image, Best snapshot, Angle difference, Image difference, Frame number, X, Y, Z, Rx, Ry, Rz" << std::endl;
+                    }
+                    // Otherwise, write basic header
+                    else {
+                        m_LogFile << "Test image, Best snapshot, Angle difference, Image difference" << std::endl;
+                    }
                 }
-                // Otherwise, write basic header
-                else {
-                    m_LogFile << "Best snapshot, angle difference, image difference" << std::endl;
-                }
-                m_MoveTime  = 0;
+
+                // Reset move time and test image
+                m_MoveTime = 0;
+                m_TestImageIndex = 0;
 
                 // Delete old testing images
                 system("rm -f test_*.png");
@@ -234,21 +240,28 @@ private:
                     if(turnToSnapshot != std::numeric_limits<size_t>::max()) {
                         std::cout << "\tBest match found with snapshot id " << turnToSnapshot << " (angle:" << turnToAngle << ", min difference:" << minDifferenceSquared << ")" << std::endl;
 
-                        // Write basic data to log file
-                        m_LogFile << turnToSnapshot << ", " << turnToAngle << ", " << minDifferenceSquared;
-                        
-                        // If vicon tracking is available
-                        if(m_Config.shouldUseViconTracking()) {
-                            // Get tracking data
-                            auto objectData = m_ViconTracking.getObjectData(0);
-                            const auto &translation = objectData.getTranslation();
-                            const auto &rotation = objectData.getRotation();
-                            
-                            // Write extra logging data
-                            m_LogFile << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2];
+                        // If we should save diagnostics when testing
+                        if(m_Config.shouldSaveTestingDiagnostic()) {
+                            // Write basic data to log file
+                            m_LogFile << m_TestImageIndex << ", " << turnToSnapshot << ", " << turnToAngle << ", " << minDifferenceSquared;
+
+                            // If vicon tracking is available
+                            if(m_Config.shouldUseViconTracking()) {
+                                // Get tracking data
+                                auto objectData = m_ViconTracking.getObjectData(0);
+                                const auto &translation = objectData.getTranslation();
+                                const auto &rotation = objectData.getRotation();
+
+                                // Write extra logging data
+                                m_LogFile << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2];
+                            }
+                            m_LogFile << std::endl;
+
+                            // Build path to test image and save
+                            const auto testImagePath = m_Config.getOutputPath() / ("test_" + std::to_string(m_TestImageIndex++) + ".png");
+                            cv::imwrite(testImagePath.str(), m_Unwrapped);
                         }
-                        m_LogFile << std::endl;
-                        
+
                         // Determine how fast we should turn based on the absolute angle
                         auto turnSpeed = m_Config.getTurnSpeed(fabs(turnToAngle));
                         
@@ -311,6 +324,9 @@ private:
 
     // 'Timer' used to move between snapshot tests
     int m_MoveTime;
+
+    // Index of test image to write
+    size_t m_TestImageIndex;
 
     // Vicon tracking interface
     Vicon::UDPClient<Vicon::ObjectData> m_ViconTracking;

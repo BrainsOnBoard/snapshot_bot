@@ -14,8 +14,9 @@
 class Config
 {
 public:
-    Config() : m_ShouldTrain(true), m_CamRes(1280, 720), m_CamDevice(0), m_UnwrapRes(180, 50),
-        m_ShouldUseHOG(false), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10), 
+    Config() : m_ShouldUseHOG(false), m_ShouldTrain(true), m_ShouldSaveTestingDiagnostic(false),
+        m_CamRes(1280, 720), m_CamDevice(0), m_UnwrapRes(180, 50),
+        m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
         m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}},
         m_ShouldUseViconTracking(false), m_ViconTrackingPort(0), 
         m_ShouldUseViconCaptureControl(false), m_ViconCaptureControlPort(0)
@@ -27,7 +28,8 @@ public:
     //------------------------------------------------------------------------
     bool shouldUseHOG() const{ return m_ShouldUseHOG; }
     bool shouldTrain() const{ return m_ShouldTrain; }
-    
+    bool shouldSaveTestingDiagnostic() const{ return m_ShouldSaveTestingDiagnostic; }
+
     const filesystem::path &getOutputPath() const{ return m_OutputPath; }
 
     const cv::Size &getCamRes() const{ return m_CamRes; }
@@ -90,6 +92,8 @@ public:
     {
         fs << "{";
         fs << "shouldUseHOG" << shouldUseHOG();
+        fs << "shouldTrain" << shouldTrain();
+        fs << "shouldSaveTestingDiagnostic" << shouldSaveTestingDiagnostic();
         fs << "outputPath" << getOutputPath().str();
         fs << "camRes" << getCamRes();
         fs << "camDevice" << getCamDevice();
@@ -98,7 +102,6 @@ public:
         fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
         fs << "joystickDeadzone" << getJoystickDeadzone();
         fs << "moveTimesteps" << getMoveTimesteps();
-        fs << "shouldTrain" << shouldTrain();
         fs << "turnThresholds" << "[";
         for(const auto &t : m_TurnThresholds) {
             fs << "[" << t.first << t.second << "]";
@@ -126,12 +129,15 @@ public:
     {
         // Read settings
         // **NOTE** we use cv::read rather than stream operators as we want to use current values as defaults
+        cv::read(node["shouldUseHOG"], m_ShouldUseHOG, m_ShouldUseHOG);
+        cv::read(node["shouldTrain"], m_ShouldTrain, m_ShouldTrain);
+        cv::read(node["shouldSaveTestingDiagnostic"], m_ShouldSaveTestingDiagnostic, m_ShouldSaveTestingDiagnostic);
+
         // **YUCK** why does OpenCV (at least my version) not have a cv::read overload for std::string!?
         cv::String outputPath;
         cv::read(node["outputPath"], outputPath, m_OutputPath.str());
         m_OutputPath = (std::string)outputPath;
 
-        cv::read(node["shouldUseHOG"], m_ShouldUseHOG, m_ShouldUseHOG);
         cv::read(node["camRes"], m_CamRes, m_CamRes);
         cv::read(node["camDevice"], m_CamDevice, m_CamDevice);
         cv::read(node["unwrapRes"], m_UnwrapRes, m_UnwrapRes);
@@ -139,7 +145,7 @@ public:
         cv::read(node["numHOGPixelsPerCell"], m_NumHOGPixelsPerCell, m_NumHOGPixelsPerCell);
         cv::read(node["joystickDeadzone"], m_JoystickDeadzone, m_JoystickDeadzone);
         cv::read(node["moveTimesteps"], m_MoveTimesteps, m_MoveTimesteps);
-        cv::read(node["shouldTrain"], m_ShouldTrain, m_ShouldTrain);
+
         
         if(node["turnThresholds"].isSeq()) {
             m_TurnThresholds.clear();
@@ -175,6 +181,9 @@ private:
     
     // Should we start in training mode or use existing data?
     bool m_ShouldTrain;
+
+    // Should we write out testing diagnostic information
+    bool m_ShouldSaveTestingDiagnostic;
     
     // Path to store snapshots etc
     filesystem::path m_OutputPath;

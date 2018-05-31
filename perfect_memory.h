@@ -149,7 +149,7 @@ private:
         std::array<uint8_t, scanStep> rollBuffer;
 
         // Loop through rows
-        for(unsigned int y = 0; y < image.rows; y++) {
+        for(int y = 0; y < image.rows; y++) {
             // Get pointer to start of row
             uint8_t *rowPtr = image.ptr(y);
 
