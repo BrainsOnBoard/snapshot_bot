@@ -15,7 +15,7 @@
 #include "third_party/path.h"
 #include "vicon/capture_control.h"
 #include "vicon/udp.h"
-#include "video/see3cam_cu40.h"
+#include "video/panoramic.h"
 
 // Snapshot bot includes
 #include "config.h"
@@ -37,10 +37,9 @@ class RobotFSM : FSM<State>::StateHandler
 {
 public:
     RobotFSM(const Config &config)
-    :   m_Config(config), m_StateMachine(this, State::Invalid),
-        m_Camera("/dev/video" + std::to_string(config.getCamDevice()), config.getSee3CamRes()),
-        m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
-        m_Unwrapper(m_Camera.createDefaultUnwrapper(config.getUnwrapRes()))
+    :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
+        m_Output(m_Camera->getOutputSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
+        m_Unwrapper(m_Camera->createDefaultUnwrapper(config.getUnwrapRes()))
     {
         // Create output directory (if necessary)
         filesystem::create_directory(m_Config.getOutputPath());
@@ -52,11 +51,7 @@ public:
         else {
             m_Memory.reset(new PerfectMemoryRaw<1>(m_Config));
         }
-        
-        // Run auto exposure algorithm
-        const cv::Mat bubblescopeMask = Video::See3CAM_CU40::createBubblescopeMask(m_Camera.getSuperPixelSize());
-        m_Camera.autoExposure(bubblescopeMask);
-
+       
         // If we should use Vicon tracking
         if(m_Config.shouldUseViconTracking()) {
             // Connect to port specified in config
@@ -141,7 +136,7 @@ private:
             }
 
             // Capture greyscale frame
-            if(!m_Camera.captureSuperPixelGreyscale(m_Output)) {
+            if(!m_Camera->readGreyscaleFrame(m_Output)) {
                 return false;
             }
             
@@ -304,7 +299,7 @@ private:
     FSM<State> m_StateMachine;
 
     // Camera interface
-    Video::See3CAM_CU40 m_Camera;
+    std::unique_ptr<Video::Input> m_Camera;
 
     // Joystick interface
     Joystick m_Joystick;

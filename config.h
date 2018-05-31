@@ -6,7 +6,6 @@
 
 // GeNN robotics includes
 #include "third_party/path.h"
-#include "video/see3cam_cu40.h"
 
 //------------------------------------------------------------------------
 // Config
@@ -15,8 +14,7 @@ class Config
 {
 public:
     Config() : m_ShouldUseHOG(false), m_ShouldTrain(true), m_ShouldSaveTestingDiagnostic(false),
-        m_CamRes(1280, 720), m_CamDevice(0), m_UnwrapRes(180, 50),
-        m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
+        m_UnwrapRes(180, 50), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
         m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}},
         m_ShouldUseViconTracking(false), m_ViconTrackingPort(0), 
         m_ShouldUseViconCaptureControl(false), m_ViconCaptureControlPort(0)
@@ -32,8 +30,6 @@ public:
 
     const filesystem::path &getOutputPath() const{ return m_OutputPath; }
 
-    const cv::Size &getCamRes() const{ return m_CamRes; }
-    int getCamDevice() const{ return m_CamDevice; }
     const cv::Size &getUnwrapRes() const{ return m_UnwrapRes; }
 
     int getNumHOGOrientations() const{ return m_NumHOGOrientations; }
@@ -66,27 +62,7 @@ public:
         // No turning required!
         return 0.0f;
     }
-  
-    GeNNRobotics::Video::See3CAM_CU40::Resolution getSee3CamRes() const
-    {
-        using namespace GeNNRobotics;
-        
-        if(m_CamRes.width == 672 && m_CamRes.height == 380) {
-            return Video::See3CAM_CU40::Resolution::_672x380;
-        }
-        else if(m_CamRes.width == 1280 && m_CamRes.height == 720) {
-            return Video::See3CAM_CU40::Resolution::_1280x720;
-        }
-        else if(m_CamRes.width == 1920 && m_CamRes.height == 1080) {
-            return Video::See3CAM_CU40::Resolution::_1920x1080;
-        }
-        else if(m_CamRes.width == 2688 && m_CamRes.height == 1520) {
-            return Video::See3CAM_CU40::Resolution::_2688x1520;
-        }
-        else {
-            throw std::runtime_error("Resolution (" + std::to_string(m_CamRes.width) + "x" + std::to_string(m_CamRes.height) + ") not supported");
-        }
-    }
+
 
     void write(cv::FileStorage& fs) const
     {
@@ -95,8 +71,6 @@ public:
         fs << "shouldTrain" << shouldTrain();
         fs << "shouldSaveTestingDiagnostic" << shouldSaveTestingDiagnostic();
         fs << "outputPath" << getOutputPath().str();
-        fs << "camRes" << getCamRes();
-        fs << "camDevice" << getCamDevice();
         fs << "unwrapRes" << getUnwrapRes();
         fs << "numHOGOrientations" << getNumHOGOrientations();
         fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
@@ -138,8 +112,6 @@ public:
         cv::read(node["outputPath"], outputPath, m_OutputPath.str());
         m_OutputPath = (std::string)outputPath;
 
-        cv::read(node["camRes"], m_CamRes, m_CamRes);
-        cv::read(node["camDevice"], m_CamDevice, m_CamDevice);
         cv::read(node["unwrapRes"], m_UnwrapRes, m_UnwrapRes);
         cv::read(node["numHOGOrientations"], m_NumHOGOrientations, m_NumHOGOrientations);
         cv::read(node["numHOGPixelsPerCell"], m_NumHOGPixelsPerCell, m_NumHOGPixelsPerCell);
@@ -188,10 +160,6 @@ private:
     // Path to store snapshots etc
     filesystem::path m_OutputPath;
 
-    // Camera properties
-    cv::Size m_CamRes;
-    int m_CamDevice;
-    
     // What resolution to unwrap panoramas to?
     cv::Size m_UnwrapRes;
 
