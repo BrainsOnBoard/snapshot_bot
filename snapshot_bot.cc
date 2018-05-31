@@ -148,6 +148,10 @@ private:
             if(event == Event::Enter) {
                 std::cout << "Starting training" << std::endl;
 
+                // Open settings file and write unwrapper settings to it
+                cv::FileStorage settingsFile((m_Config.getOutputPath() / "training_settings.yaml").str().c_str(), cv::FileStorage::WRITE);
+                settingsFile << "unwrapper" << m_Unwrapper;
+                
                 // Close log file if it's already open
                 if(m_LogFile.is_open()) {
                     m_LogFile.close();
@@ -192,6 +196,10 @@ private:
             if(event == Event::Enter) {
                 std::cout << "Testing: finding snapshot" << std::endl;
 
+                // Open settings file and write unwrapper settings to it
+                cv::FileStorage settingsFile((m_Config.getOutputPath() / "testing_settings.yaml").str().c_str(), cv::FileStorage::WRITE);
+                settingsFile << "unwrapper" << m_Unwrapper;
+                
                 // Close log file if it's already open
                 if(m_LogFile.is_open()) {
                     m_LogFile.close();
