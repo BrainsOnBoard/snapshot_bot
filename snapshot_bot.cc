@@ -1,40 +1,27 @@
 // Standard C++ includes
+#include <fstream>
 #include <limits>
-#include <tuple>
-#include <vector>
+#include <memory>
 
 // Standard C includes
 #include <cassert>
 
-// POSIX includes
-#include <sys/stat.h>
-
 // GeNN robotics includes
-#include "fsm.h"
-#include "joystick.h"
-#include "motor_i2c.h"
-#include "opencv_unwrap_360.h"
-#include "see3cam_cu40.h"
-#include "timer.h"
+#include "common/fsm.h"
+#include "common/joystick.h"
+#include "common/timer.h"
+#include "imgproc/opencv_unwrap_360.h"
+#include "robots/motor_i2c.h"
+#include "third_party/path.h"
+#include "vicon/capture_control.h"
+#include "vicon/udp.h"
+#include "video/panoramic.h"
 
-constexpr float pi = 3.141592653589793238462643383279502884f;
+// Snapshot bot includes
+#include "config.h"
+#include "perfect_memory.h"
 
-namespace Settings
-{
-    
-    // What resolution to operate camera at
-    const See3CAM_CU40::Resolution camRes = See3CAM_CU40::Resolution::_1280x720;
-
-    // What resolution to unwrap panoramas to
-    const cv::Size unwrapRes(180, 50);
-
-    const size_t hogDescriptorSize = (unwrapRes.width * unwrapRes.height * 8) / (10 * 10);
-    
-    // How large should the deadzone be on the analogue joystick
-    const float joystickDeadzone = 0.25f;
-
-    const float  threshold = 30.0f;
-}
+using namespace GeNNRobotics;
 
 enum class State
 {
@@ -44,295 +31,67 @@ enum class State
 };
 
 //------------------------------------------------------------------------
-// PerfectMemoryBase
-//------------------------------------------------------------------------
-template<unsigned int scanStep>
-class PerfectMemoryBase
-{
-public:
-    PerfectMemoryBase(const cv::Size &snapshotRes) : SnapshotRes(snapshotRes)
-    {
-    }
-
-    //------------------------------------------------------------------------
-    // Constants
-    //------------------------------------------------------------------------
-    const cv::Size SnapshotRes;
-
-    //------------------------------------------------------------------------
-    // Declared virtuals
-    //------------------------------------------------------------------------
-    virtual size_t getNumSnapshots() const = 0;
-
-     //------------------------------------------------------------------------
-    // Public API
-    //------------------------------------------------------------------------
-    void load()
-    {
-        struct stat buffer;
-        for(size_t i = 0;;i++) {
-            char filename[128];
-            sprintf(filename, "snapshot_%zu.png", i);
-            if(stat(filename, &buffer) == 0) {
-                // Load image
-                cv::Mat image = cv::imread(filename, cv::IMREAD_GRAYSCALE);
-                assert(image.cols == SnapshotRes.width);
-                assert(image.rows == SnapshotRes.height);
-                assert(image.type() == CV_8UC1);
-
-                // Add snapshot
-                addSnapshot(image);
-            }
-            else {
-                break;
-	    }
-        }
-        std::cout << "Loaded " << getNumSnapshots() << " snapshots" << std::endl;
-    }
-
-    size_t train(const cv::Mat &image)
-    {
-        assert(image.cols == SnapshotRes.width);
-        assert(image.rows == SnapshotRes.height);
-        assert(image.type() == CV_8UC1);
-
-        // Add snapshot and return its index
-        return addSnapshot(image);
-    }
-
-    std::tuple<float, size_t, float> findSnapshot(cv::Mat &image) const
-    {
-        assert(image.cols == SnapshotRes.width);
-        assert(image.rows == SnapshotRes.height);
-        assert(image.type() == CV_8UC1);
-
-        // Scan across image columns
-        float minDifferenceSquared = std::numeric_limits<float>::max();
-        int bestCol = 0;
-        size_t bestSnapshot = std::numeric_limits<size_t>::max();
-        const size_t numSnapshots = getNumSnapshots();
-        for(int i = 0; i < image.cols; i += scanStep) {
-            // Loop through snapshots
-            for(size_t s = 0; s < numSnapshots; s++) {
-                // Calculate difference
-                const float differenceSquared = calcSnapshotDifferenceSquared(image, s);
-
-                // If this is an improvement - update
-                if(differenceSquared < minDifferenceSquared) {
-                    minDifferenceSquared = differenceSquared;
-                    bestCol = i;
-                    bestSnapshot = s;
-                }
-            }
-
-            // Roll image left by scanstep
-            rollImage(image);
-        }
-
-        // If best column is more than 180 degrees away, flip
-        if(bestCol > (SnapshotRes.width / 2)) {
-            bestCol -= SnapshotRes.width;
-        }
-
-        // Convert column into angle
-        const float bestAngle = ((float)bestCol / (float)SnapshotRes.width) * (2.0 * pi);
-
-        // Return result
-        return std::make_tuple(bestAngle, bestSnapshot, minDifferenceSquared);
-    }
-
-protected:
-    //------------------------------------------------------------------------
-    // Declared virtuals
-    //------------------------------------------------------------------------
-    // Add a snapshot to memory and return its index
-    virtual size_t addSnapshot(const cv::Mat &image) = 0;
-
-    // Calculate difference between memory and snapshot with index
-    virtual float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot) const = 0;
-
-private:
-    //------------------------------------------------------------------------
-    // Private static methods
-    //------------------------------------------------------------------------
-    // 'Rolls' an image scanStep to the left
-    static void rollImage(cv::Mat &image)
-    {
-        // Buffer to hold scanstep of pixels
-        std::array<uint8_t, scanStep> rollBuffer;
-
-        // Loop through rows
-        for(unsigned int y = 0; y < image.rows; y++) {
-            // Get pointer to start of row
-            uint8_t *rowPtr = image.ptr(y);
-
-            // Copy scanStep pixels at left hand size of row into buffer
-            std::copy_n(rowPtr, scanStep, rollBuffer.begin());
-
-            // Copy rest of row back over pixels we've copied to buffer
-            std::copy_n(rowPtr + scanStep, image.cols - scanStep, rowPtr);
-
-            // Copy buffer back into row
-            std::copy(rollBuffer.begin(), rollBuffer.end(), rowPtr + (image.cols - scanStep));
-        }
-    }
-};
-
-
-//------------------------------------------------------------------------
-// PerfectMemoryHOG
-//------------------------------------------------------------------------
-template<unsigned int scanStep>
-class PerfectMemoryHOG : public PerfectMemoryBase<scanStep>
-{
-public:
-    PerfectMemoryHOG(const cv::Size &snapshotRes)
-    :   PerfectMemoryBase<scanStep>(snapshotRes), m_ScratchDescriptors(Settings::hogDescriptorSize)
-    {
-        // Configure HOG features
-        m_HOG.winSize = snapshotRes; 
-        m_HOG.blockSize = cv::Size(10, 10);
-        m_HOG.blockStride = cv::Size(10, 10);
-        m_HOG.cellSize = cv::Size(10, 10);
-        m_HOG.nbins = 8;
-    }
-
-    //------------------------------------------------------------------------
-    // Declared virtuals
-    //------------------------------------------------------------------------
-    virtual size_t getNumSnapshots() const override { return m_Snapshots.size(); }
-
-protected:
-    // Add a snapshot to memory and return its index
-    virtual size_t addSnapshot(const cv::Mat &image) override
-    {
-        m_Snapshots.emplace_back(Settings::hogDescriptorSize);
-        m_HOG.compute(image, m_Snapshots.back());
-        assert(m_Snapshots.back().size() == Settings::hogDescriptorSize);
-
-        // Return index of new snapshot
-        return (m_Snapshots.size() - 1);
-    }
-
-    // Calculate difference between memory and snapshot with index
-    virtual float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot) const override
-    {
-        // Calculate HOG descriptors of image
-        m_HOG.compute(image, m_ScratchDescriptors);
-        assert(m_ScratchDescriptors.size() == Settings::hogDescriptorSize);
-
-        // Calculate square difference between image HOG descriptors and snapshot
-        std::transform(m_Snapshots[snapshot].begin(), m_Snapshots[snapshot].end(),
-                       m_ScratchDescriptors.begin(), m_ScratchDescriptors.begin(),
-                       [](float a, float b)
-                       {
-                           return (a - b) * (a - b);
-                       });
-
-        // Calculate RMS
-        return sqrt(std::accumulate(m_ScratchDescriptors.begin(), m_ScratchDescriptors.end(), 0.0f));
-    }
-
-private:
-    //------------------------------------------------------------------------
-    // Members
-    //------------------------------------------------------------------------
-    mutable std::vector<float> m_ScratchDescriptors;
-    std::vector<std::vector<float>> m_Snapshots;
-    cv::HOGDescriptor m_HOG;
-};
-
-//------------------------------------------------------------------------
-// PerfectMemoryHOG
-//------------------------------------------------------------------------
-template<unsigned int scanStep>
-class PerfectMemoryRaw : public PerfectMemoryBase<scanStep>
-{
-public:
-    PerfectMemoryRaw(const cv::Size &snapshotRes)
-    :   PerfectMemoryBase<scanStep>(snapshotRes), m_ScratchImage(snapshotRes, CV_8UC1), m_ScratchImageFloat(snapshotRes, CV_32FC1),
-        m_ScratchXSumFloat(1, snapshotRes.width, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1)
-    {
-    }
-
-    //------------------------------------------------------------------------
-    // Declared virtuals
-    //------------------------------------------------------------------------
-    virtual size_t getNumSnapshots() const override { return m_Snapshots.size(); }
-
-protected:
-    // Add a snapshot to memory and return its index
-    virtual size_t addSnapshot(const cv::Mat &image) override
-    {
-        m_Snapshots.emplace_back();
-        image.copyTo(m_Snapshots.back());
-
-        // Return index of new snapshot
-        return (m_Snapshots.size() - 1);
-    }
-
-    // Calculate difference between memory and snapshot with index
-    virtual float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot) const override
-    {
-        // Calculate absolute difference between image and stored image
-        cv::absdiff(m_Snapshots[snapshot], image, m_ScratchImage);
-
-        // Convert to float
-        m_ScratchImage.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
-
-        // Square
-        cv::multiply(m_ScratchImageFloat, m_ScratchImageFloat, m_ScratchImageFloat);
-
-        // Reduce difference down twice to get scalar
-        cv::reduce(m_ScratchImageFloat, m_ScratchXSumFloat, 0, CV_REDUCE_SUM);
-        cv::reduce(m_ScratchXSumFloat, m_ScratchSumFloat, 1, CV_REDUCE_SUM);
-
-        // Extract difference
-        return m_ScratchSumFloat.at<float>(0, 0);
-    }
-
-
-
-private:
-    //------------------------------------------------------------------------
-    // Members
-    //------------------------------------------------------------------------
-    std::vector<cv::Mat> m_Snapshots;
-    mutable cv::Mat m_ScratchImage;
-    mutable cv::Mat m_ScratchImageFloat;
-    mutable cv::Mat m_ScratchXSumFloat;
-    mutable cv::Mat m_ScratchSumFloat;
-};
-
-
-//------------------------------------------------------------------------
 // RobotFSM
 //------------------------------------------------------------------------
 class RobotFSM : FSM<State>::StateHandler
 {
 public:
-    RobotFSM(unsigned int camDevice, See3CAM_CU40::Resolution camRes, const cv::Size &unwrapRes, bool load) 
-    :   m_StateMachine(this, State::Invalid), m_Camera("/dev/video" + std::to_string(camDevice), camRes),
-        m_Output(m_Camera.getSuperPixelSize(), CV_8UC1), m_Unwrapped(unwrapRes, CV_8UC1),
-        m_Unwrapper(See3CAM_CU40::createUnwrapper(m_Camera.getSuperPixelSize(), unwrapRes)),
-        m_Memory(unwrapRes)
+    RobotFSM(const Config &config)
+    :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
+        m_Output(m_Camera->getOutputSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
+        m_Unwrapper(m_Camera->createDefaultUnwrapper(config.getUnwrapRes()))
     {
-        m_Camera.setExposure(300);
-        m_Camera.setBrightness(30);
-        // If we should load in existing snapshots
-        if(load) {
+        // Create output directory (if necessary)
+        filesystem::create_directory(m_Config.getOutputPath());
+
+        // Create appropriate type of memory
+        if(m_Config.shouldUseHOG()) {
+            m_Memory.reset(new PerfectMemoryHOG<1>(m_Config));
+        }
+        else {
+            m_Memory.reset(new PerfectMemoryRaw<1>(m_Config));
+        }
+       
+        // If we should use Vicon tracking
+        if(m_Config.shouldUseViconTracking()) {
+            // Connect to port specified in config
+            if(!m_ViconTracking.connect(m_Config.getViconTrackingPort())) {
+                throw std::runtime_error("Cannot connect to Vicon tracking system");
+            }
+            
+            // Wait for tracking data stream to begin
+            while(m_ViconTracking.getNumObjects() == 0) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                std::cout << "Waiting for Vicon tracking data object" << std::endl;
+            }
+        }
+        
+        // If we should use Vicon capture control
+        if(m_Config.shouldUseViconCaptureControl()) {
+            // Connect to capture host system specified in config
+            if(!m_ViconCaptureControl.connect(m_Config.getViconCaptureControlHost(), m_Config.getViconCaptureControlPort(),
+                m_Config.getViconCaptureControlPath())) 
+            {
+                throw std::runtime_error("Cannot connect to Vicon capture control");
+            }
+            
+            // Start capture
+            if(!m_ViconCaptureControl.startRecording(m_Config.getViconCaptureControlName())) {
+                throw std::runtime_error("Cannot start capture");
+            }
+        }
+        
+        // If we should train
+        if(m_Config.shouldTrain()) {
+            // Start in training state
+            m_StateMachine.transition(State::Training);
+        }
+        else {
             // Load memory
-            m_Memory.load();
+            m_Memory->load();
             
             // Start directly in testing state
             m_StateMachine.transition(State::Testing);
-        }
-        else {
-            // Delete old snapshots
-            system("rm -f snapshot_*.png");
-
-            // Start in training state
-            m_StateMachine.transition(State::Training);
         }
     }
     
@@ -366,11 +125,18 @@ private:
             
             // Exit if button 2 is pressed
             if(m_Joystick.isButtonPressed(2)) {
+                 // If we should use Vicon capture control
+                if(m_Config.shouldUseViconCaptureControl()) {
+                    // Stop capture
+                    if(!m_ViconCaptureControl.stopRecording(m_Config.getViconCaptureControlName())) {
+                        throw std::runtime_error("Cannot stop capture");
+                    }
+                }
                 return false;
             }
 
             // Capture greyscale frame
-            if(!m_Camera.captureSuperPixelGreyscale(m_Output)) {
+            if(!m_Camera->readGreyscaleFrame(m_Output)) {
                 return false;
             }
             
@@ -381,15 +147,46 @@ private:
         if(state == State::Training) {
             if(event == Event::Enter) {
                 std::cout << "Starting training" << std::endl;
+
+                // Open settings file and write unwrapper settings to it
+                cv::FileStorage settingsFile((m_Config.getOutputPath() / "training_settings.yaml").str().c_str(), cv::FileStorage::WRITE);
+                settingsFile << "unwrapper" << m_Unwrapper;
+                
+                // Close log file if it's already open
+                if(m_LogFile.is_open()) {
+                    m_LogFile.close();
+                }
+
+                // If Vicon tracking is available, open log file and write header
+                if(m_Config.shouldUseViconTracking()) {
+                    m_LogFile.open((m_Config.getOutputPath() / "snapshots.csv").str());
+                    m_LogFile << "Snapshot, Frame, X, Y, Z, Rx, Ry, Rz" << std::endl;
+                }
+
+                // Delete old snapshots
+                system("rm -f snapshot_*.png");
             }
             else if(event == Event::Update) {
                 // Drive motors using joystick
-                m_Joystick.drive(m_Motor, Settings::joystickDeadzone);
+                m_Joystick.drive(m_Motor, m_Config.getJoystickDeadzone());
                 
+                // If 1st button is pressed, save snapshot
                 if(m_Joystick.isButtonPressed(0)) {
-                    const size_t snapshotID = m_Memory.train(m_Unwrapped);
+                    const size_t snapshotID = m_Memory->train(m_Unwrapped);
                     std::cout << "\tTrained snapshot id:" << snapshotID << std::endl;
+                    
+                    // If Vicon tracking is available
+                    if(m_Config.shouldUseViconTracking()) {
+                        // Get tracking data
+                        auto objectData = m_ViconTracking.getObjectData(0);
+                        const auto &translation = objectData.getTranslation();
+                        const auto &rotation = objectData.getRotation();
+
+                        // Write to CSV
+                        m_LogFile << snapshotID << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2] << std::endl;
+                    }
                 }
+                // Otherwise, if 2nd button is pressed, go to testing
                 else if(m_Joystick.isButtonPressed(1)) {
                     m_StateMachine.transition(State::Testing);
                 }
@@ -398,35 +195,89 @@ private:
         else if(state == State::Testing) {
             if(event == Event::Enter) {
                 std::cout << "Testing: finding snapshot" << std::endl;
-                m_MoveTime  = 0;
+
+                // Open settings file and write unwrapper settings to it
+                cv::FileStorage settingsFile((m_Config.getOutputPath() / "testing_settings.yaml").str().c_str(), cv::FileStorage::WRITE);
+                settingsFile << "unwrapper" << m_Unwrapper;
+                
+                // Close log file if it's already open
+                if(m_LogFile.is_open()) {
+                    m_LogFile.close();
+                }
+
+                // If we should save diagnostics when testing
+                if(m_Config.shouldSaveTestingDiagnostic()) {
+                    // Open log file
+                    m_LogFile.open((m_Config.getOutputPath() / "testing.csv").str());
+
+                    // If Vicon tracking is available, write extended header
+                    if(m_Config.shouldUseViconTracking()) {
+                        m_LogFile << "Test image, Best snapshot, Angle difference, Image difference, Frame number, X, Y, Z, Rx, Ry, Rz" << std::endl;
+                    }
+                    // Otherwise, write basic header
+                    else {
+                        m_LogFile << "Test image, Best snapshot, Angle difference, Image difference" << std::endl;
+                    }
+                }
+
+                // Reset move time and test image
+                m_MoveTime = 0;
+                m_TestImageIndex = 0;
+
+                // Delete old testing images
+                system("rm -f test_*.png");
             }
             else if(event == Event::Update) {
                 // If it's time to move
                 if(m_MoveTime == 0) {
                     // Reset move time
-                    m_MoveTime = 10;
+                    m_MoveTime = m_Config.getMoveTimesteps();
 
-	            // Find matching snapshot
-        	    float turnToAngle;
+                    // Find matching snapshot
+                    float turnToAngle;
                     size_t turnToSnapshot;
-              	    float minDifferenceSquared;
-                    std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory.findSnapshot(m_Unwrapped);
+                    float minDifferenceSquared;
+                    std::tie(turnToAngle, turnToSnapshot, minDifferenceSquared) = m_Memory->findSnapshot(m_Unwrapped);
 
                     // If a snapshot is found and it isn't the one we were previously at
                     if(turnToSnapshot != std::numeric_limits<size_t>::max()) {
                         std::cout << "\tBest match found with snapshot id " << turnToSnapshot << " (angle:" << turnToAngle << ", min difference:" << minDifferenceSquared << ")" << std::endl;
 
-                        // If we're well oriented with snapshot, drive forward
-                        const float turnMagnitude = fabs(turnToAngle);
-                        if(turnMagnitude < 0.1f) {
-                            m_Motor.tank(1.0f, 1.0f);
+                        // If we should save diagnostics when testing
+                        if(m_Config.shouldSaveTestingDiagnostic()) {
+                            // Write basic data to log file
+                            m_LogFile << m_TestImageIndex << ", " << turnToSnapshot << ", " << turnToAngle << ", " << minDifferenceSquared;
+
+                            // If vicon tracking is available
+                            if(m_Config.shouldUseViconTracking()) {
+                                // Get tracking data
+                                auto objectData = m_ViconTracking.getObjectData(0);
+                                const auto &translation = objectData.getTranslation();
+                                const auto &rotation = objectData.getRotation();
+
+                                // Write extra logging data
+                                m_LogFile << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2];
+                            }
+                            m_LogFile << std::endl;
+
+                            // Build path to test image and save
+                            const auto testImagePath = m_Config.getOutputPath() / ("test_" + std::to_string(m_TestImageIndex++) + ".png");
+                            cv::imwrite(testImagePath.str(), m_Unwrapped);
                         }
-                        // Otherwise, turn towards snapshot
-                        else {
-                            const float motorSpeed = (turnMagnitude < 0.2f) ? 0.5f : 1.0f;
-                            const float motorTurn = (turnToAngle <  0.0f) ? -motorSpeed : motorSpeed;
+
+                        // Determine how fast we should turn based on the absolute angle
+                        auto turnSpeed = m_Config.getTurnSpeed(fabs(turnToAngle));
+                        
+                        // If we should turn, do so
+                        if(turnSpeed > 0.0f) {
+                            const float motorTurn = (turnToAngle <  0.0f) ? -turnSpeed : turnSpeed;
                             m_Motor.tank(motorTurn, -motorTurn);
                         }
+                        // Otherwise drive forwards
+                        else {
+                            m_Motor.tank(1.0f, 1.0f);
+                        }
+                        
                     }
                     else {
                         std::cerr << "No snapshots learned" << std::endl;
@@ -449,11 +300,14 @@ private:
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
+    // Configuration
+    const Config &m_Config;
+
     // State machine
     FSM<State> m_StateMachine;
 
     // Camera interface
-    See3CAM_CU40 m_Camera;
+    std::unique_ptr<Video::Input> m_Camera;
 
     // Joystick interface
     Joystick m_Joystick;
@@ -463,22 +317,50 @@ private:
     cv::Mat m_Unwrapped;
 
     // OpenCV-based panorama unwrapper
-    OpenCVUnwrap360 m_Unwrapper;
+    ImgProc::OpenCVUnwrap360 m_Unwrapper;
 
     // Perfect memory
-    PerfectMemoryHOG<1> m_Memory;
+    std::unique_ptr<PerfectMemoryBase<1>> m_Memory;
 
     // Motor driver
-    MotorI2C m_Motor;
+    Robots::MotorI2C m_Motor;
 
     // 'Timer' used to move between snapshot tests
-    unsigned int m_MoveTime;
+    int m_MoveTime;
+
+    // Index of test image to write
+    size_t m_TestImageIndex;
+
+    // Vicon tracking interface
+    Vicon::UDPClient<Vicon::ObjectData> m_ViconTracking;
+
+    // Vicon capture control interface
+    Vicon::CaptureControl m_ViconCaptureControl;
+    
+    // CSV file containing logging
+    std::ofstream m_LogFile;
 };
 
 int main(int argc, char *argv[])
 {
-    const bool load = (argc > 1);
-    RobotFSM robot(0, Settings::camRes, Settings::unwrapRes, load);
+    const char *configFilename = (argc > 1) ? argv[1] : "config.yaml";
+    
+    // Read config values from file
+    Config config;
+    {
+        cv::FileStorage configFile(configFilename, cv::FileStorage::READ);
+        if(configFile.isOpened()) {
+            configFile["config"] >> config;
+        }
+    }
+
+    // Re-write config file
+    {
+        cv::FileStorage configFile(configFilename, cv::FileStorage::WRITE);
+        configFile << "config" << config;
+    }
+    
+    RobotFSM robot(config);
     
     {
         Timer<> timer("Total time:");
