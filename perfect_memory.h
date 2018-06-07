@@ -26,6 +26,10 @@ class PerfectMemoryBase
 public:
     PerfectMemoryBase(const Config &config) : SnapshotRes(config.getUnwrapRes()), m_OutputPath(config.getOutputPath())
     {
+        // Load mask image if specified
+        if(!config.getMaskImageFilename().empty()) {
+            m_MaskImage = cv::imread(config.getMaskImageFilename(), cv::IMREAD_GRAYSCALE);
+        }
     }
 
     //------------------------------------------------------------------------
@@ -84,6 +88,10 @@ public:
         assert(image.rows == SnapshotRes.height);
         assert(image.type() == CV_8UC1);
 
+        // Clone mask image
+        // **NOTE** we need two copies - one to rotate with image and one to leave alone
+        cv::Mat imageMask = m_MaskImage.clone();
+
         // Scan across image columns
         float minDifferenceSquared = std::numeric_limits<float>::max();
         int bestCol = 0;
@@ -93,7 +101,7 @@ public:
             // Loop through snapshots
             for(size_t s = 0; s < numSnapshots; s++) {
                 // Calculate difference
-                const float differenceSquared = calcSnapshotDifferenceSquared(image, s);
+                const float differenceSquared = calcSnapshotDifferenceSquared(image, imageMask, s);
 
                 // If this is an improvement - update
                 if(differenceSquared < minDifferenceSquared) {
@@ -103,8 +111,11 @@ public:
                 }
             }
 
-            // Roll image left by scanstep
+            // Roll image and corresponding mask left by scanstep
             rollImage(image);
+            if(!imageMask.empty()) {
+                rollImage(imageMask);
+            }
         }
 
         // If best column is more than 180 degrees away, flip
@@ -128,7 +139,13 @@ protected:
     virtual size_t addSnapshot(const cv::Mat &image) = 0;
 
     // Calculate difference between memory and snapshot with index
-    virtual float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot) const = 0;
+    virtual float calcSnapshotDifferenceSquared(const cv::Mat &image, const cv::Mat &imageMask, size_t snapshot) const = 0;
+
+    //------------------------------------------------------------------------
+    // Protected methods
+    //------------------------------------------------------------------------
+    // Gets mask image
+    const cv::Mat &getMaskImage() const{ return m_MaskImage; }
 
 private:
     //------------------------------------------------------------------------
@@ -168,6 +185,7 @@ private:
     // Members
     //------------------------------------------------------------------------
     const filesystem::path &m_OutputPath;
+    cv::Mat m_MaskImage;
 };
 
 
@@ -216,8 +234,10 @@ protected:
     }
 
     // Calculate difference between memory and snapshot with index
-    virtual float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot) const override
+    virtual float calcSnapshotDifferenceSquared(const cv::Mat &image, const cv::Mat &imageMask, size_t snapshot) const override
     {
+        assert(imageMask.empty());
+
         // Calculate HOG descriptors of image
         m_HOG.compute(image, m_ScratchDescriptors);
         assert(m_ScratchDescriptors.size() == HOGDescriptorSize);
@@ -252,8 +272,7 @@ class PerfectMemoryRaw : public PerfectMemoryBase<scanStep>
 public:
     PerfectMemoryRaw(const Config &config)
     :   PerfectMemoryBase<scanStep>(config),
-        m_ScratchImage(config.getUnwrapRes(), CV_8UC1), m_ScratchImageFloat(config.getUnwrapRes(), CV_32FC1),
-        m_ScratchXSumFloat(1, config.getUnwrapRes().width, CV_32FC1), m_ScratchSumFloat(1, 1, CV_32FC1)
+        m_ScratchImage(config.getUnwrapRes(), CV_8UC1)
     {
         std::cout << "Creating perfect memory for raw images" << std::endl;
     }
@@ -275,26 +294,52 @@ protected:
     }
 
     // Calculate difference between memory and snapshot with index
-    virtual float calcSnapshotDifferenceSquared(const cv::Mat &image, size_t snapshot) const override
+    virtual float calcSnapshotDifferenceSquared(const cv::Mat &image, const cv::Mat &imageMask, size_t snapshot) const override
     {
         // Calculate absolute difference between image and stored image
         cv::absdiff(m_Snapshots[snapshot], image, m_ScratchImage);
 
-        // Convert to float
-        m_ScratchImage.convertTo(m_ScratchImageFloat, CV_32FC1, 1.0 / 255.0);
+        // Get raw access to image difference values
+        const uint8_t *rawDiff = reinterpret_cast<const uint8_t*>(m_ScratchImage.data);
 
-        // Square
-        cv::multiply(m_ScratchImageFloat, m_ScratchImageFloat, m_ScratchImageFloat);
+        // If there's no mask
+        if(imageMask.empty()) {
+            // Loop through pixels
+            float sumSqrDifference = 0.0f;
+            for(int i = 0; i < (m_ScratchImage.cols * m_ScratchImage.rows); i++) {
+                // Accumulate sum of squared differences
+                const float diff = (float)rawDiff[i];
+                sumSqrDifference += (diff * diff);
+            }
 
-        // Reduce difference down twice to get scalar
-        cv::reduce(m_ScratchImageFloat, m_ScratchXSumFloat, 0, CV_REDUCE_SUM);
-        cv::reduce(m_ScratchXSumFloat, m_ScratchSumFloat, 1, CV_REDUCE_SUM);
+            // Scale down by number of pixels and take square root
+            return sqrt(sumSqrDifference / (float)(m_ScratchImage.cols * m_ScratchImage.rows));
+        }
+        // Otherwise
+        else {
+            // Get raw access to rotated mask associated with image and non-rotated mask associated with snapshot
+            const uint8_t *rawImageMask = reinterpret_cast<const uint8_t*>(imageMask.data);
+            const uint8_t *rawSnapshotMask = reinterpret_cast<const uint8_t*>(this->getMaskImage().data);
 
-        // Extract difference
-        return m_ScratchSumFloat.at<float>(0, 0);
+            // Loop through pixels
+            float sumSqrDifference = 0.0f;
+            unsigned int numUnmaskedPixels = 0;
+            for(int i = 0; i < (m_ScratchImage.cols * m_ScratchImage.rows); i++) {
+                // If this pixel is masked by neither of the masks
+                if(rawImageMask[i] != 0 && rawSnapshotMask[i] != 0) {
+                    // Accumulate sum of squared differences
+                    const float diff = (float)rawDiff[i];
+                    sumSqrDifference += (diff * diff);
+
+                    // Increment unmasked pixels count
+                    numUnmaskedPixels++;
+                }
+            }
+
+            // Scale down by number of unmasked pixels and take square root
+            return sqrt(sumSqrDifference / (float)numUnmaskedPixels);
+        }
     }
-
-
 
 private:
     //------------------------------------------------------------------------
@@ -302,7 +347,4 @@ private:
     //------------------------------------------------------------------------
     std::vector<cv::Mat> m_Snapshots;
     mutable cv::Mat m_ScratchImage;
-    mutable cv::Mat m_ScratchImageFloat;
-    mutable cv::Mat m_ScratchXSumFloat;
-    mutable cv::Mat m_ScratchSumFloat;
 };

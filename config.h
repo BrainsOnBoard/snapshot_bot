@@ -14,7 +14,7 @@ class Config
 {
 public:
     Config() : m_ShouldUseHOG(false), m_ShouldTrain(true), m_ShouldSaveTestingDiagnostic(false),
-        m_UnwrapRes(180, 50), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
+        m_UnwrapRes(180, 50), m_MaskImageFilename("mask.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
         m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}},
         m_ShouldUseViconTracking(false), m_ViconTrackingPort(0), 
         m_ShouldUseViconCaptureControl(false), m_ViconCaptureControlPort(0)
@@ -31,6 +31,8 @@ public:
     const filesystem::path &getOutputPath() const{ return m_OutputPath; }
 
     const cv::Size &getUnwrapRes() const{ return m_UnwrapRes; }
+
+    const std::string &getMaskImageFilename() const{ return m_MaskImageFilename; }
 
     int getNumHOGOrientations() const{ return m_NumHOGOrientations; }
     int getNumHOGPixelsPerCell() const{ return m_NumHOGPixelsPerCell; }
@@ -72,6 +74,7 @@ public:
         fs << "shouldSaveTestingDiagnostic" << shouldSaveTestingDiagnostic();
         fs << "outputPath" << getOutputPath().str();
         fs << "unwrapRes" << getUnwrapRes();
+        fs << "maskImageFilename" << getMaskImageFilename();
         fs << "numHOGOrientations" << getNumHOGOrientations();
         fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
         fs << "joystickDeadzone" << getJoystickDeadzone();
@@ -113,6 +116,11 @@ public:
         m_OutputPath = (std::string)outputPath;
 
         cv::read(node["unwrapRes"], m_UnwrapRes, m_UnwrapRes);
+
+        cv::String maskImageFilename;
+        cv::read(node["maskImageFilename"], maskImageFilename, m_MaskImageFilename);
+        m_MaskImageFilename = (std::string)maskImageFilename;
+
         cv::read(node["numHOGOrientations"], m_NumHOGOrientations, m_NumHOGOrientations);
         cv::read(node["numHOGPixelsPerCell"], m_NumHOGPixelsPerCell, m_NumHOGPixelsPerCell);
         cv::read(node["joystickDeadzone"], m_JoystickDeadzone, m_JoystickDeadzone);
@@ -162,6 +170,9 @@ private:
 
     // What resolution to unwrap panoramas to?
     cv::Size m_UnwrapRes;
+
+    // Filename of mask used to crop out unwanted bits of robot
+    std::string m_MaskImageFilename;
 
     // HOG configuration
     int m_NumHOGOrientations;
