@@ -5,6 +5,7 @@
 #include <string>
 
 // GeNN robotics includes
+#include "net/socket.h"
 #include "third_party/path.h"
 
 //------------------------------------------------------------------------
@@ -13,20 +14,21 @@
 class Config
 {
 public:
-    Config() : m_ShouldUseHOG(false), m_ShouldTrain(true), m_ShouldSaveTestingDiagnostic(false),
+    Config() : m_UseHOG(false), m_Train(true), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
         m_UnwrapRes(180, 50), m_MaskImageFilename("mask.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
-        m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}},
-        m_ShouldUseViconTracking(false), m_ViconTrackingPort(0), 
-        m_ShouldUseViconCaptureControl(false), m_ViconCaptureControlPort(0)
+        m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_ServerListenPort(GeNNRobotics::Net::Socket::DefaultListenPort),
+        m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), 
+        m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
     {
     }
 
     //------------------------------------------------------------------------
     // Public API
     //------------------------------------------------------------------------
-    bool shouldUseHOG() const{ return m_ShouldUseHOG; }
-    bool shouldTrain() const{ return m_ShouldTrain; }
-    bool shouldSaveTestingDiagnostic() const{ return m_ShouldSaveTestingDiagnostic; }
+    bool shouldUseHOG() const{ return m_UseHOG; }
+    bool shouldTrain() const{ return m_Train; }
+    bool shouldSaveTestingDiagnostic() const{ return m_SaveTestingDiagnostic; }
+    bool shouldStreamOutput() const{ return m_StreamOutput; }
 
     const filesystem::path &getOutputPath() const{ return m_OutputPath; }
 
@@ -42,14 +44,16 @@ public:
 
     int getMoveTimesteps() const{ return m_MoveTimesteps; }
     
-    bool shouldUseViconTracking() const{ return m_ShouldUseViconTracking; }
+    bool shouldUseViconTracking() const{ return m_UseViconTracking; }
     int getViconTrackingPort() const{ return m_ViconTrackingPort; }
     
-    bool shouldUseViconCaptureControl() const{ return m_ShouldUseViconCaptureControl; }
+    bool shouldUseViconCaptureControl() const{ return m_UseViconCaptureControl; }
     const std::string &getViconCaptureControlName() const{ return m_ViconCaptureControlName; }
     const std::string &getViconCaptureControlHost() const{ return m_ViconCaptureControlHost; }
     int getViconCaptureControlPort() const { return m_ViconCaptureControlPort; }
     const std::string &getViconCaptureControlPath() const{ return m_ViconCaptureControlPath; }
+    
+    int getServerListenPort() const{ return m_ServerListenPort; }
     
     float getTurnSpeed(float angleDifference) const
     {
@@ -72,6 +76,7 @@ public:
         fs << "shouldUseHOG" << shouldUseHOG();
         fs << "shouldTrain" << shouldTrain();
         fs << "shouldSaveTestingDiagnostic" << shouldSaveTestingDiagnostic();
+        fs << "shouldStreamOutput" << shouldStreamOutput();
         fs << "outputPath" << getOutputPath().str();
         fs << "unwrapRes" << getUnwrapRes();
         fs << "maskImageFilename" << getMaskImageFilename();
@@ -79,6 +84,7 @@ public:
         fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
         fs << "joystickDeadzone" << getJoystickDeadzone();
         fs << "moveTimesteps" << getMoveTimesteps();
+        fs << "serverListenPort" << getServerListenPort();
         fs << "turnThresholds" << "[";
         for(const auto &t : m_TurnThresholds) {
             fs << "[" << t.first << t.second << "]";
@@ -106,10 +112,11 @@ public:
     {
         // Read settings
         // **NOTE** we use cv::read rather than stream operators as we want to use current values as defaults
-        cv::read(node["shouldUseHOG"], m_ShouldUseHOG, m_ShouldUseHOG);
-        cv::read(node["shouldTrain"], m_ShouldTrain, m_ShouldTrain);
-        cv::read(node["shouldSaveTestingDiagnostic"], m_ShouldSaveTestingDiagnostic, m_ShouldSaveTestingDiagnostic);
-
+        cv::read(node["shouldUseHOG"], m_UseHOG, m_UseHOG);
+        cv::read(node["shouldTrain"], m_Train, m_Train);
+        cv::read(node["shouldSaveTestingDiagnostic"], m_SaveTestingDiagnostic, m_SaveTestingDiagnostic);
+        cv::read(node["shouldStreamOutput"], m_StreamOutput, m_StreamOutput);
+        
         // **YUCK** why does OpenCV (at least my version) not have a cv::read overload for std::string!?
         cv::String outputPath;
         cv::read(node["outputPath"], outputPath, m_OutputPath.str());
@@ -125,7 +132,7 @@ public:
         cv::read(node["numHOGPixelsPerCell"], m_NumHOGPixelsPerCell, m_NumHOGPixelsPerCell);
         cv::read(node["joystickDeadzone"], m_JoystickDeadzone, m_JoystickDeadzone);
         cv::read(node["moveTimesteps"], m_MoveTimesteps, m_MoveTimesteps);
-
+        cv::read(node["serverListenPort"], m_ServerListenPort, m_ServerListenPort);
         
         if(node["turnThresholds"].isSeq()) {
             m_TurnThresholds.clear();
@@ -137,13 +144,13 @@ public:
         
         const auto &viconTracking = node["viconTracking"];
         if(viconTracking.isMap()) {
-            m_ShouldUseViconTracking = true;
+            m_UseViconTracking = true;
             viconTracking["port"] >> m_ViconTrackingPort;
         }
         
         const auto &viconCaptureControl = node["viconCaptureControl"];
         if(viconCaptureControl.isMap()) {
-            m_ShouldUseViconCaptureControl = true;
+            m_UseViconCaptureControl = true;
             viconCaptureControl["name"] >> m_ViconCaptureControlName;
             viconCaptureControl["host"] >> m_ViconCaptureControlHost;
             viconCaptureControl["port"] >> m_ViconCaptureControlPort;
@@ -157,13 +164,16 @@ private:
     // Members
     //------------------------------------------------------------------------
     // Should we use HOG features or raw images?
-    bool m_ShouldUseHOG;
+    bool m_UseHOG;
     
     // Should we start in training mode or use existing data?
-    bool m_ShouldTrain;
+    bool m_Train;
 
     // Should we write out testing diagnostic information
-    bool m_ShouldSaveTestingDiagnostic;
+    bool m_SaveTestingDiagnostic;
+    
+    // Should we transmit visual output
+    bool m_StreamOutput;
     
     // Path to store snapshots etc
     filesystem::path m_OutputPath;
@@ -184,15 +194,18 @@ private:
     // How many timesteps do we move for before re-calculating IDF?
     int m_MoveTimesteps;
     
+    // Listen port used for streaming etc
+    int m_ServerListenPort;
+    
     // RDF angle difference thresholds that trigger different turning speeds
     std::map<float, float> m_TurnThresholds;
     
     // Vicon tracking settings
-    bool m_ShouldUseViconTracking;
+    bool m_UseViconTracking;
     int m_ViconTrackingPort;
     
     // Vicon capture control settings
-    bool m_ShouldUseViconCaptureControl;
+    bool m_UseViconCaptureControl;
     std::string m_ViconCaptureControlName;
     std::string m_ViconCaptureControlHost;
     int m_ViconCaptureControlPort;

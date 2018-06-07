@@ -11,9 +11,11 @@
 #include "common/timer.h"
 #include "hid/joystick.h"
 #include "imgproc/opencv_unwrap_360.h"
+#include "net/server.h"
 #include "robots/norbot.h"
 #include "third_party/path.h"
 #include "vicon/capture_control.h"
+#include "video/netsink.h"
 #include "vicon/udp.h"
 #include "video/panoramic.h"
 
@@ -39,7 +41,8 @@ public:
     RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
         m_Output(m_Camera->getOutputSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
-        m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes()))
+        m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes())), 
+        m_Server(config.getServerListenPort()), m_NetSink(m_Server, config.getUnwrapRes(), "unwrapped")
     {
         // Create output directory (if necessary)
         filesystem::create_directory(m_Config.getOutputPath());
@@ -50,6 +53,11 @@ public:
         }
         else {
             m_Memory.reset(new PerfectMemoryRaw<1>(m_Config));
+        }
+        
+        // If we should stream output, run server thread
+        if(m_Config.shouldStreamOutput()) {
+            m_Server.runInBackground();
         }
        
         // If we should use Vicon tracking
@@ -142,6 +150,11 @@ private:
             
             // Unwrap frame
             m_Unwrapper.unwrap(m_Output, m_Unwrapped);
+            
+            // If we should stream output, send unwrapped frame
+            if(m_Config.shouldStreamOutput()) {
+                m_NetSink.sendFrame(m_Unwrapped);
+            }
         }
 
         if(state == State::Training) {
@@ -339,6 +352,12 @@ private:
     
     // CSV file containing logging
     std::ofstream m_LogFile;
+    
+    // Server for streaming etc
+    Net::Server m_Server;
+    
+    // Sink for video to send over server
+    Video::NetSink m_NetSink;
 };
 
 int main(int argc, char *argv[])
