@@ -8,10 +8,10 @@
 
 // GeNN robotics includes
 #include "common/fsm.h"
-#include "common/joystick.h"
 #include "common/timer.h"
+#include "hid/joystick.h"
 #include "imgproc/opencv_unwrap_360.h"
-#include "robots/motor_i2c.h"
+#include "robots/norbot.h"
 #include "third_party/path.h"
 #include "vicon/capture_control.h"
 #include "vicon/udp.h"
@@ -39,7 +39,7 @@ public:
     RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
         m_Output(m_Camera->getOutputSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
-        m_Unwrapper(m_Camera->createDefaultUnwrapper(config.getUnwrapRes()))
+        m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes()))
     {
         // Create output directory (if necessary)
         filesystem::create_directory(m_Config.getOutputPath());
@@ -121,10 +121,10 @@ private:
         // If this event is an update
         if(event == Event::Update) {
             // Read joystick
-            m_Joystick.read();
+            m_Joystick.update();
             
-            // Exit if button 2 is pressed
-            if(m_Joystick.isButtonPressed(2)) {
+            // Exit if X is pressed
+            if(m_Joystick.isPressed(HID::JButton::X)) {
                  // If we should use Vicon capture control
                 if(m_Config.shouldUseViconCaptureControl()) {
                     // Stop capture
@@ -168,10 +168,10 @@ private:
             }
             else if(event == Event::Update) {
                 // Drive motors using joystick
-                m_Joystick.drive(m_Motor, m_Config.getJoystickDeadzone());
+                m_Motor.drive(m_Joystick, m_Config.getJoystickDeadzone());
                 
-                // If 1st button is pressed, save snapshot
-                if(m_Joystick.isButtonPressed(0)) {
+                // If A is pressed, save snapshot
+                if(m_Joystick.isPressed(HID::JButton::A)) {
                     const size_t snapshotID = m_Memory->train(m_Unwrapped);
                     std::cout << "\tTrained snapshot id:" << snapshotID << std::endl;
                     
@@ -186,8 +186,8 @@ private:
                         m_LogFile << snapshotID << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2] << std::endl;
                     }
                 }
-                // Otherwise, if 2nd button is pressed, go to testing
-                else if(m_Joystick.isButtonPressed(1)) {
+                // Otherwise, if B is pressed, go to testing
+                else if(m_Joystick.isPressed(HID::JButton::B)) {
                     m_StateMachine.transition(State::Testing);
                 }
             }
@@ -310,7 +310,7 @@ private:
     std::unique_ptr<Video::Input> m_Camera;
 
     // Joystick interface
-    Joystick m_Joystick;
+    HID::Joystick m_Joystick;
 
     // OpenCV images used to store raw camera frame and unwrapped panorama
     cv::Mat m_Output;
@@ -323,7 +323,7 @@ private:
     std::unique_ptr<PerfectMemoryBase<1>> m_Memory;
 
     // Motor driver
-    Robots::MotorI2C m_Motor;
+    Robots::Norbot m_Motor;
 
     // 'Timer' used to move between snapshot tests
     int m_MoveTime;
