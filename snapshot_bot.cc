@@ -177,7 +177,8 @@ private:
                 }
 
                 // Delete old snapshots
-                system("rm -f snapshot_*.png");
+                const std::string snapshotWildcard = (m_Config.getOutputPath() / "snapshot_*.png").str();
+                system(("rm -f " + snapshotWildcard).c_str());
             }
             else if(event == Event::Update) {
                 // Drive motors using joystick
@@ -238,7 +239,8 @@ private:
                 m_TestImageIndex = 0;
 
                 // Delete old testing images
-                system("rm -f test_*.png");
+                const std::string testWildcard = (m_Config.getOutputPath() / "test_*.png").str();
+                system(("rm -f " + testWildcard).c_str());
             }
             else if(event == Event::Update) {
                 // If it's time to move
