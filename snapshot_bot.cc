@@ -41,7 +41,7 @@ public:
     RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
         m_Output(m_Camera->getOutputSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
-        m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes())), 
+        m_DifferenceImage(config.getUnwrapRes(), CV_8UC1),m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes())),
         m_Server(config.getServerListenPort()), m_NetSink(m_Server, config.getUnwrapRes(), "unwrapped")
     {
         // Create output directory (if necessary)
@@ -150,11 +150,6 @@ private:
             
             // Unwrap frame
             m_Unwrapper.unwrap(m_Output, m_Unwrapped);
-            
-            // If we should stream output, send unwrapped frame
-            if(m_Config.shouldStreamOutput()) {
-                m_NetSink.sendFrame(m_Unwrapped);
-            }
         }
 
         if(state == State::Training) {
@@ -181,6 +176,11 @@ private:
                 system(("rm -f " + snapshotWildcard).c_str());
             }
             else if(event == Event::Update) {
+                // While testing, if we should stream output, send unwrapped frame
+                if(m_Config.shouldStreamOutput()) {
+                    m_NetSink.sendFrame(m_Unwrapped);
+                }
+
                 // Drive motors using joystick
                 m_Motor.drive(m_Joystick, m_Config.getJoystickDeadzone());
                 
@@ -280,6 +280,23 @@ private:
                             cv::imwrite(testImagePath.str(), m_Unwrapped);
                         }
 
+                        // If we should stream output
+                        if(m_Config.shouldStreamOutput()) {
+                            // Get matched snapshot
+                            const cv::Mat &matchedSnapshot = m_Memory->getSnapshot(turnToSnapshot);
+
+                            // Calculate difference image
+                            cv::absdiff(matchedSnapshot, m_Unwrapped, m_DifferenceImage);
+
+                            char status[255];
+                            sprintf(status, "Angle:%f, Min difference:%f", turnToAngle * 57.2958f, minDifferenceSquared);
+                            cv::putText(m_DifferenceImage, status, cv::Point(0, m_Config.getUnwrapRes().height -20),
+                                        cv::FONT_HERSHEY_COMPLEX_SMALL, 1.0, 0xFF);
+
+                            // Send annotated difference image
+                            m_NetSink.sendFrame(m_DifferenceImage);
+                        }
+
                         // Determine how fast we should turn based on the absolute angle
                         auto turnSpeed = m_Config.getTurnSpeed(fabs(turnToAngle));
                         
@@ -330,6 +347,7 @@ private:
     // OpenCV images used to store raw camera frame and unwrapped panorama
     cv::Mat m_Output;
     cv::Mat m_Unwrapped;
+    cv::Mat m_DifferenceImage;
 
     // OpenCV-based panorama unwrapper
     ImgProc::OpenCVUnwrap360 m_Unwrapper;
