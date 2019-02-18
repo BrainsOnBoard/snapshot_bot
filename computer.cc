@@ -20,7 +20,7 @@
 #include "video/display.h"
 #include "video/netsource.h"
 
-using namespace GeNNRobotics;
+using namespace BoBRobotics;
 
 int main(int argc, char **argv)
 {

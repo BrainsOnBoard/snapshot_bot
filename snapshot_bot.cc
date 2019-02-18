@@ -6,7 +6,7 @@
 // Standard C includes
 #include <cassert>
 
-// GeNN robotics includes
+// BoB robotics includes
 #include "common/fsm.h"
 #include "common/timer.h"
 #include "hid/joystick.h"
@@ -23,7 +23,7 @@
 #include "config.h"
 #include "perfect_memory.h"
 
-using namespace GeNNRobotics;
+using namespace BoBRobotics;
 
 enum class State
 {
@@ -41,8 +41,8 @@ public:
     RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
         m_Output(m_Camera->getOutputSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
-        m_DifferenceImage(config.getUnwrapRes(), CV_8UC1),m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes())),
-        m_Server(config.getServerListenPort()), m_NetSink(m_Server, config.getUnwrapRes(), "unwrapped")
+        m_DifferenceImage(config.getUnwrapRes(), CV_8UC1),m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes()))/*,
+        m_Server(config.getServerListenPort()), m_NetSink(m_Server, config.getUnwrapRes(), "unwrapped")*/
     {
         // Create output directory (if necessary)
         filesystem::create_directory(m_Config.getOutputPath());
@@ -56,21 +56,25 @@ public:
         }
         
         // If we should stream output, run server thread
-        if(m_Config.shouldStreamOutput()) {
+        /*if(m_Config.shouldStreamOutput()) {
             m_Server.runInBackground();
-        }
+        }*/
        
         // If we should use Vicon tracking
         if(m_Config.shouldUseViconTracking()) {
             // Connect to port specified in config
-            if(!m_ViconTracking.connect(m_Config.getViconTrackingPort())) {
-                throw std::runtime_error("Cannot connect to Vicon tracking system");
-            }
+            m_ViconTracking.connect(m_Config.getViconTrackingPort());
             
             // Wait for tracking data stream to begin
-            while(m_ViconTracking.getNumObjects() == 0) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-                std::cout << "Waiting for Vicon tracking data object" << std::endl;
+            while(true) {
+                try {
+                    m_ViconTrackingObjectID = m_ViconTracking.findObjectID(m_Config.getViconTrackingObjectName());
+                    break;
+                }
+                catch(std::out_of_range &ex) {
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    std::cout << "Waiting for object '" << m_Config.getViconTrackingObjectName() << "'" << std::endl;
+                }
             }
         }
         
@@ -177,9 +181,9 @@ private:
             }
             else if(event == Event::Update) {
                 // While testing, if we should stream output, send unwrapped frame
-                if(m_Config.shouldStreamOutput()) {
+                /*if(m_Config.shouldStreamOutput()) {
                     m_NetSink.sendFrame(m_Unwrapped);
-                }
+                }*/
 
                 // Drive motors using joystick
                 m_Motor.drive(m_Joystick, m_Config.getJoystickDeadzone());
@@ -193,11 +197,11 @@ private:
                     if(m_Config.shouldUseViconTracking()) {
                         // Get tracking data
                         auto objectData = m_ViconTracking.getObjectData(0);
-                        const auto &translation = objectData.getTranslation();
-                        const auto &rotation = objectData.getRotation();
+                        const auto &position = objectData.getPosition<units::length::millimeter_t>();
+                        const auto &attitude = objectData.getAttitude<units::angle::degree_t>();
 
                         // Write to CSV
-                        m_LogFile << snapshotID << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2] << std::endl;
+                        m_LogFile << snapshotID << ", " << objectData.getFrameNumber() << ", " << position[0] << ", " << position[1] << ", " << position[2] << ", " << attitude[0] << ", " << attitude[1] << ", " << attitude[2] << std::endl;
                     }
                 }
                 // Otherwise, if B is pressed, go to testing
@@ -267,11 +271,11 @@ private:
                             if(m_Config.shouldUseViconTracking()) {
                                 // Get tracking data
                                 auto objectData = m_ViconTracking.getObjectData(0);
-                                const auto &translation = objectData.getTranslation();
-                                const auto &rotation = objectData.getRotation();
+                                const auto &position = objectData.getPosition<units::length::millimeter_t>();
+                                const auto &attitude = objectData.getAttitude<units::angle::degree_t>();
 
                                 // Write extra logging data
-                                m_LogFile << ", " << objectData.getFrameNumber() << ", " << translation[0] << ", " << translation[1] << ", " << translation[2] << ", " << rotation[0] << ", " << rotation[1] << ", " << rotation[2];
+                                m_LogFile << ", " << objectData.getFrameNumber() << ", " << position[0] << ", " << position[1] << ", " << position[2] << ", " << attitude[0] << ", " << attitude[1] << ", " << attitude[2];
                             }
                             m_LogFile << std::endl;
 
@@ -294,7 +298,7 @@ private:
                                         cv::FONT_HERSHEY_COMPLEX_SMALL, 1.0, 0xFF);
 
                             // Send annotated difference image
-                            m_NetSink.sendFrame(m_DifferenceImage);
+                            //m_NetSink.sendFrame(m_DifferenceImage);
                         }
 
                         // Determine how fast we should turn based on the absolute angle
@@ -366,6 +370,7 @@ private:
 
     // Vicon tracking interface
     Vicon::UDPClient<Vicon::ObjectData> m_ViconTracking;
+    unsigned int m_ViconTrackingObjectID;
 
     // Vicon capture control interface
     Vicon::CaptureControl m_ViconCaptureControl;
@@ -374,10 +379,10 @@ private:
     std::ofstream m_LogFile;
     
     // Server for streaming etc
-    Net::Server m_Server;
+    //Net::Server m_Server;
     
     // Sink for video to send over server
-    Video::NetSink m_NetSink;
+    //Video::NetSink m_NetSink;
 };
 
 int main(int argc, char *argv[])

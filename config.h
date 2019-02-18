@@ -4,8 +4,8 @@
 #include <map>
 #include <string>
 
-// GeNN robotics includes
-#include "net/socket.h"
+// BoB robotics includes
+#include "net/connection.h"
 #include "third_party/path.h"
 
 //------------------------------------------------------------------------
@@ -16,8 +16,8 @@ class Config
 public:
     Config() : m_UseHOG(false), m_Train(true), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
         m_UnwrapRes(180, 50), m_MaskImageFilename("mask.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
-        m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_ServerListenPort(GeNNRobotics::Net::Socket::DefaultListenPort),
-        m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), 
+        m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort),
+        m_TurnThresholds{{0.1f, 0.5f}, {0.2f, 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
     {
     }
@@ -46,6 +46,7 @@ public:
     
     bool shouldUseViconTracking() const{ return m_UseViconTracking; }
     int getViconTrackingPort() const{ return m_ViconTrackingPort; }
+    const std::string &getViconTrackingObjectName() const{ return m_ViconTrackingObjectName; }
     
     bool shouldUseViconCaptureControl() const{ return m_UseViconCaptureControl; }
     const std::string &getViconCaptureControlName() const{ return m_ViconCaptureControlName; }
@@ -94,6 +95,7 @@ public:
         if(shouldUseViconTracking()) {
             fs << "viconTracking" << "{";
             fs << "port" << getViconTrackingPort();
+            fs << "objectName" << getViconTrackingObjectName();
             fs << "}";
         }
         
@@ -146,6 +148,7 @@ public:
         if(viconTracking.isMap()) {
             m_UseViconTracking = true;
             viconTracking["port"] >> m_ViconTrackingPort;
+            viconTracking["objectName"] >> m_ViconTrackingObjectName;
         }
         
         const auto &viconCaptureControl = node["viconCaptureControl"];
@@ -203,6 +206,7 @@ private:
     // Vicon tracking settings
     bool m_UseViconTracking;
     int m_ViconTrackingPort;
+    std::string m_ViconTrackingObjectName;
     
     // Vicon capture control settings
     bool m_UseViconCaptureControl;
