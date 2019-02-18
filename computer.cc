@@ -38,7 +38,7 @@ int main(int argc, char **argv)
     }
 
     // start networking API on Windows
-    WSAStartup();
+    OS::Net::WindowsNetworking::initialise();
 
     // use a separate scope so that socket is closed before WSACleanup is called
     {
@@ -67,7 +67,4 @@ int main(int argc, char **argv)
             }
         }
     }
-
-    // shutdown networking API on Windows
-    WSACleanup();
 }
