@@ -16,7 +16,7 @@ class Config
 {
 public:
     Config() : m_UseHOG(false), m_Train(true), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
-        m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_MaskImageFilename("mask.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
+        m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_MaskImageFilename("mask.png"), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
         m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort),
         m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
@@ -38,7 +38,8 @@ public:
     const cv::Size &getUnwrapRes() const{ return m_UnwrapRes; }
 
     const std::string &getMaskImageFilename() const{ return m_MaskImageFilename; }
-
+    const std::string &getWatershedMarkerImageFilename() const{ return m_WatershedMarkerImageFilename; }
+    
     int getNumHOGOrientations() const{ return m_NumHOGOrientations; }
     int getNumHOGPixelsPerCell() const{ return m_NumHOGPixelsPerCell; }
     int getHOGDescriptorSize() const{ return (getUnwrapRes().width * getUnwrapRes().height * getNumHOGOrientations()) / (getNumHOGPixelsPerCell() * getNumHOGPixelsPerCell()); }
@@ -87,6 +88,7 @@ public:
         fs << "maxSnapshotRotateDegrees" << getMaxSnapshotRotateAngle().value();
         fs << "unwrapRes" << getUnwrapRes();
         fs << "maskImageFilename" << getMaskImageFilename();
+        fs << "watershedMarkerImageFilename" << getWatershedMarkerImageFilename();
         fs << "numHOGOrientations" << getNumHOGOrientations();
         fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
         fs << "joystickDeadzone" << getJoystickDeadzone();
@@ -136,7 +138,11 @@ public:
         cv::String maskImageFilename;
         cv::read(node["maskImageFilename"], maskImageFilename, m_MaskImageFilename);
         m_MaskImageFilename = (std::string)maskImageFilename;
-
+        
+        cv::String watershedMarkerImageFilename;
+        cv::read(node["watershedMarkerImageFilename"], watershedMarkerImageFilename, m_WatershedMarkerImageFilename);
+        m_WatershedMarkerImageFilename = (std::string)watershedMarkerImageFilename;
+        
         cv::read(node["numHOGOrientations"], m_NumHOGOrientations, m_NumHOGOrientations);
         cv::read(node["numHOGPixelsPerCell"], m_NumHOGPixelsPerCell, m_NumHOGPixelsPerCell);
         cv::read(node["joystickDeadzone"], m_JoystickDeadzone, m_JoystickDeadzone);
@@ -187,7 +193,6 @@ private:
     // Should we use HOG features or raw images?
     bool m_UseHOG;
     
-    
     // Should we start in training mode or use existing data?
     bool m_Train;
 
@@ -209,6 +214,9 @@ private:
     // Filename of mask used to crop out unwanted bits of robot
     std::string m_MaskImageFilename;
 
+    // Filename of image used to provide markers to watershed segmentation algorithm;
+    std::string m_WatershedMarkerImageFilename;
+    
     // HOG configuration
     int m_NumHOGOrientations;
     int m_NumHOGPixelsPerCell;

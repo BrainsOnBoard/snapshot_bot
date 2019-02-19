@@ -23,6 +23,7 @@
 
 // Snapshot bot includes
 #include "config.h"
+#include "image_input.h"
 #include "memory.h"
 
 using namespace BoBRobotics;
@@ -51,21 +52,24 @@ class RobotFSM : FSM<State>::StateHandler
 public:
     RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
-        m_Output(m_Camera->getOutputSize(), CV_8UC1), m_Unwrapped(config.getUnwrapRes(), CV_8UC1),
-        m_DifferenceImage(config.getUnwrapRes(), CV_8UC1),m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes()))/*,
-        m_Server(config.getServerListenPort()), m_NetSink(m_Server, config.getUnwrapRes(), "unwrapped")*/
+        m_Output(m_Camera->getOutputSize(), CV_8UC3), m_Unwrapped(config.getUnwrapRes(), CV_8UC3),
+        m_DifferenceImage(config.getUnwrapRes(), CV_8UC1), m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes())),/*
+        m_Server(config.getServerListenPort()), m_NetSink(m_Server, config.getUnwrapRes(), "unwrapped"),*/
+        m_NumSnapshots(0)
     {
         // Create output directory (if necessary)
         filesystem::create_directory(m_Config.getOutputPath());
     
+        // Create image input
+        m_ImageInput.reset(new ImageInputRaw(m_Config));
+        
         // Create appropriate type of memory
         if(m_Config.getMaxSnapshotRotateAngle() < 180_deg) {
-            m_Memory.reset(new PerfectMemory(m_Config));
+            m_Memory.reset(new PerfectMemory(m_Config, m_ImageInput->getOutputSize()));
         }
         else {
-            m_Memory.reset(new PerfectMemoryConstrained(m_Config));
+            m_Memory.reset(new PerfectMemoryConstrained(m_Config, m_ImageInput->getOutputSize()));
         }
-
 
         // If we should stream output, run server thread
         /*if(m_Config.shouldStreamOutput()) {
@@ -111,8 +115,19 @@ public:
             m_StateMachine.transition(State::Training);
         }
         else {
-            // Load memory
-            m_Memory->load();
+           for(m_NumSnapshots = 0;;m_NumSnapshots++) {
+                const auto filename = getSnapshotPath(m_NumSnapshots);
+                
+                // If file exists, load image and train memory on it
+                if(filename.exists()) {
+                    m_Memory->train(m_ImageInput->processSnapshot(cv::imread(filename.str())));
+                }
+                // Otherwise, stop searching
+                else {
+                    break;
+                }
+            }
+            std::cout << "Loaded " << m_NumSnapshots << " snapshots" << std::endl;
             
             // Start directly in testing state
             m_StateMachine.transition(State::Testing);
@@ -133,10 +148,12 @@ public:
         return m_StateMachine.update();
     }
     
-    const cv::Mat &getOutput() const{ return m_Output; }
-    const cv::Mat &getUnwrapped() const{ return m_Unwrapped; }
-    
 private:
+    filesystem::path getSnapshotPath(size_t index) const
+    {
+        return m_Config.getOutputPath() / ("snapshot_" + std::to_string(index) + ".png");
+    }
+    
     //------------------------------------------------------------------------
     // FSM::StateHandler virtuals
     //------------------------------------------------------------------------
@@ -159,8 +176,8 @@ private:
                 return false;
             }
 
-            // Capture greyscale frame
-            if(!m_Camera->readGreyscaleFrame(m_Output)) {
+            // Capture frame
+            if(!m_Camera->readFrame(m_Output)) {
                 return false;
             }
             
@@ -200,10 +217,14 @@ private:
                 // Drive motors using joystick
                 m_Motor.drive(m_Joystick, m_Config.getJoystickDeadzone());
                 
-                // If A is pressed, save snapshot
+                // If A is pressed
                 if(m_Joystick.isPressed(HID::JButton::A)) {
-                    m_Memory->train(m_Unwrapped);
+                    // Train memory
                     std::cout << "\tTrained snapshot" << std::endl;
+                    m_Memory->train(m_ImageInput->processSnapshot(m_Unwrapped));
+                    
+                    // Write raw snapshot to disk
+                    cv::imwrite(getSnapshotPath(m_NumSnapshots++).str(), m_Unwrapped);
                     
                     // If Vicon tracking is available
                     if(m_Config.shouldUseViconTracking()) {
@@ -260,12 +281,13 @@ private:
             }
             else if(event == Event::Update) {
                 // If it's time to move
+                // **TODO** use clock and units
                 if(m_MoveTime == 0) {
                     // Reset move time
                     m_MoveTime = m_Config.getMoveTimesteps();
 
                     // Find matching snapshot
-                    m_Memory->test(m_Unwrapped);
+                    m_Memory->test(m_ImageInput->processSnapshot(m_Unwrapped));
 
                     // If we should save diagnostics when testing
                     if(m_Config.shouldSaveTestingDiagnostic()) {
@@ -290,7 +312,7 @@ private:
                     }
 
                     // If we should stream output
-                    if(m_Config.shouldStreamOutput()) {
+                    /*if(m_Config.shouldStreamOutput()) {
                         // Attempt to dynamic cast memory to a perfect memory
                         PerfectMemory *perfectMemory = dynamic_cast<PerfectMemory*>(m_Memory.get());
                         if(perfectMemory != nullptr) {
@@ -311,7 +333,7 @@ private:
                         else {
                             std::cout << "WARNING: Can only stream output from a perfect memory" << std::endl;
                         }
-                    }
+                    }*/
 
                     // Determine how fast we should turn based on the absolute angle
                     auto turnSpeed = m_Config.getTurnSpeed(m_Memory->getBestHeading());
@@ -365,6 +387,9 @@ private:
     // Perfect memory
     std::unique_ptr<MemoryBase> m_Memory;
 
+    // Image processor
+    std::unique_ptr<ImageInput> m_ImageInput;
+
     // Motor driver
     Robots::Norbot m_Motor;
 
@@ -383,6 +408,9 @@ private:
     
     // CSV file containing logging
     std::ofstream m_LogFile;
+    
+    // How many snapshots has memory been trained on
+    size_t m_NumSnapshots;
     
     // Server for streaming etc
     //Net::Server m_Server;

@@ -13,8 +13,8 @@ using namespace units::math;
 //------------------------------------------------------------------------
 // MemoryBase
 //------------------------------------------------------------------------
-MemoryBase::MemoryBase(const Config &config)
-:   m_BestHeading(0.0_deg), m_LowestDifference(std::numeric_limits<size_t>::max()), m_OutputPath(config.getOutputPath())
+MemoryBase::MemoryBase()
+:   m_BestHeading(0.0_deg), m_LowestDifference(std::numeric_limits<size_t>::max())
 {
 }
 //------------------------------------------------------------------------
@@ -31,8 +31,8 @@ void MemoryBase::writeCSVLine(std::ostream &os)
 //------------------------------------------------------------------------
 // PerfectMemory
 //------------------------------------------------------------------------
-PerfectMemory::PerfectMemory(const Config &config)
-:   MemoryBase(config), m_PM(config.getUnwrapRes()), m_BestSnapshotIndex(std::numeric_limits<size_t>::max())
+PerfectMemory::PerfectMemory(const Config &config, const cv::Size &inputSize)
+:   m_PM(inputSize), m_BestSnapshotIndex(std::numeric_limits<size_t>::max())
 {
     // Load mask image
     if(!config.getMaskImageFilename().empty()) {
@@ -55,25 +55,6 @@ void PerfectMemory::test(const cv::Mat &snapshot)
 void PerfectMemory::train(const cv::Mat &snapshot)
 {
     getPM().train(snapshot);
-    
-    // Save snapshot
-    cv::imwrite(getSnapshotPath(getPM().getNumSnapshots() - 1).str(), snapshot);
-}
-//------------------------------------------------------------------------
-void PerfectMemory::load()
-{
-    for(size_t i = 0;;i++) {
-        const auto filename = getSnapshotPath(i);
-        if(filename.exists()) {
-            // Load image
-            cv::Mat image = cv::imread(filename.str(), cv::IMREAD_GRAYSCALE);
-            getPM().train(image);
-        }
-        else {
-            break;
-        }
-    }
-    std::cout << "Loaded " << getPM().getNumSnapshots() << " snapshots" << std::endl;
 }
 //------------------------------------------------------------------------
 void PerfectMemory::writeCSVHeader(std::ostream &os)
@@ -95,8 +76,8 @@ void PerfectMemory::writeCSVLine(std::ostream &os)
 //------------------------------------------------------------------------
 // PerfectMemoryConstrained
 //------------------------------------------------------------------------
-PerfectMemoryConstrained::PerfectMemoryConstrained(const Config &config)
-:   PerfectMemory(config), m_FOV(config.getMaxSnapshotRotateAngle()), m_ImageWidth(config.getUnwrapRes().width)
+PerfectMemoryConstrained::PerfectMemoryConstrained(const Config &config, const cv::Size &inputSize)
+:   PerfectMemory(config, inputSize), m_FOV(config.getMaxSnapshotRotateAngle()), m_ImageWidth(inputSize.width)
 {
 }
 //------------------------------------------------------------------------v

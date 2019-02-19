@@ -1,7 +1,7 @@
 WITH_EIGEN=1
 include $(BOB_ROBOTICS_PATH)/make_common/bob_robotics.mk
 
-SNAPSHOT_BOT_SOURCES	:= snapshot_bot.cc memory.cc
+SNAPSHOT_BOT_SOURCES	:= snapshot_bot.cc memory.cc image_input.cc
 SNAPSHOT_BOT_OBJECTS	:= $(SNAPSHOT_BOT_SOURCES:.cc=.o)
 SNAPSHOT_BOT_DEPS	:= $(SNAPSHOT_BOT_SOURCES:.cc=.d)
 

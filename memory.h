@@ -19,14 +19,13 @@ class Config;
 class MemoryBase
 {
 public:
-    MemoryBase(const Config &config);
+    MemoryBase();
 
     //------------------------------------------------------------------------
     // Declared virtuals
     //------------------------------------------------------------------------
     virtual void test(const cv::Mat &snapshot) = 0;
     virtual void train(const cv::Mat &snapshot) = 0;
-    virtual void load() = 0;
 
     virtual void writeCSVHeader(std::ostream &os);
     virtual void writeCSVLine(std::ostream &os);
@@ -43,15 +42,13 @@ protected:
     //------------------------------------------------------------------------
     void setBestHeading(units::angle::degree_t bestHeading){ m_BestHeading = bestHeading; }
     void setLowestDifference(float lowestDifference){ m_LowestDifference = lowestDifference; }
-    const filesystem::path &getOutputPath() const{ return m_OutputPath; }
-    
+   
 private:
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
     units::angle::degree_t m_BestHeading;
     float m_LowestDifference;
-    const filesystem::path &m_OutputPath;
 };
 
 //------------------------------------------------------------------------
@@ -60,14 +57,13 @@ private:
 class PerfectMemory : public MemoryBase
 {
 public:
-    PerfectMemory(const Config &config);
+    PerfectMemory(const Config &config, const cv::Size &inputSize);
 
     //------------------------------------------------------------------------
     // MemoryBase virtuals
     //------------------------------------------------------------------------
     virtual void test(const cv::Mat &snapshot) override;
     virtual void train(const cv::Mat &snapshot) override;
-    virtual void load() override;
     
     virtual void writeCSVHeader(std::ostream &os);
     virtual void writeCSVLine(std::ostream &os);
@@ -89,14 +85,6 @@ protected:
 
 private:
     //------------------------------------------------------------------------
-    // Private methods
-    //------------------------------------------------------------------------
-    filesystem::path getSnapshotPath(size_t index) const
-    {
-        return getOutputPath() / ("snapshot_" + std::to_string(index) + ".png");
-    }
-    
-    //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
     BoBRobotics::Navigation::PerfectMemoryRotater<> m_PM;
@@ -109,7 +97,7 @@ private:
 class PerfectMemoryConstrained : public PerfectMemory
 {
 public:
-    PerfectMemoryConstrained(const Config &config);
+    PerfectMemoryConstrained(const Config &config, const cv::Size &inputSize);
 
     virtual void test(const cv::Mat &snapshot) override;
 
