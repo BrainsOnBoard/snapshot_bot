@@ -4,6 +4,9 @@
 // Standard C++ includes
 #include <fstream>
 
+// BoB robotics third party include
+#include "third_party/path.h"
+
 // Snapshot bot includes
 #include "config.h"
 
@@ -132,7 +135,7 @@ void PerfectMemoryConstrained::test(const cv::Mat &snapshot)
 // InfoMax
 //------------------------------------------------------------------------
 InfoMax::InfoMax(const Config &config, const cv::Size &inputSize)
-:   m_InfoMax(inputSize)
+:   m_InfoMax(createInfoMax(config, inputSize))
 {
     BOB_ASSERT(config.getMaskImageFilename().empty());
 }
@@ -161,6 +164,32 @@ void InfoMax::saveWeights(const std::string &filename) const
     const int size[2] { (int) getInfoMax().getWeights().rows(), (int) getInfoMax().getWeights().cols() };
     netFile.write(reinterpret_cast<const char *>(size), sizeof(size));
     netFile.write(reinterpret_cast<const char *>(getInfoMax().getWeights().data()), getInfoMax().getWeights().size() * sizeof(float));
+}
+//-----------------------------------------------------------------------
+InfoMax::InfoMaxType InfoMax::createInfoMax(const Config &config, const cv::Size &inputSize)
+{
+    const filesystem::path weightPath = filesystem::path(config.getOutputPath()) / "weights.bin";
+    if(weightPath.exists()) {
+        std::cout << "\tLoading weights from " << weightPath << std::endl;
+        
+        std::ifstream is(weightPath.str(), std::ios::binary);
+        if (!is.good()) {
+            throw std::runtime_error("Could not open " + weightPath.str());
+        }
+
+        // The matrix size is encoded as 2 x int32_t
+        int32_t size[2];
+        is.read(reinterpret_cast<char *>(&size), sizeof(size));
+
+        // Create data array and fill it
+        InfoMaxWeightMatrixType weights(size[0], size[1]);
+        is.read(reinterpret_cast<char*>(weights.data()), sizeof(float) * weights.size());
+        
+        return InfoMaxType(inputSize, weights);
+    }
+    else {
+        return InfoMaxType(inputSize);
+    }
 }
 
 //-----------------------------------------------------------------------

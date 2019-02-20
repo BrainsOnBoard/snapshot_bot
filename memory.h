@@ -122,7 +122,7 @@ public:
 
     virtual void test(const cv::Mat &snapshot) override;
     virtual void train(const cv::Mat &snapshot) override;
-
+    
     void saveWeights(const std::string &filename) const;
     
 protected:
@@ -133,6 +133,8 @@ protected:
     const InfoMaxType &getInfoMax() const { return m_InfoMax; }
 
 private:
+    static InfoMaxType createInfoMax(const Config &config, const cv::Size &inputSize);
+    
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------

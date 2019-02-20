@@ -134,21 +134,32 @@ public:
             m_StateMachine.transition(State::WaitToTrain);
         }
         else {
-            std::cout << "Training on stored snapshots" << std::endl;
-            for(m_NumSnapshots = 0;;m_NumSnapshots++) {
-                const auto filename = getSnapshotPath(m_NumSnapshots);
-                
-                // If file exists, load image and train memory on it
-                if(filename.exists()) {
-                    std::cout << "." << std::flush;
-                    m_Memory->train(m_ImageInput->processSnapshot(cv::imread(filename.str())));
+            // If we're not using InfoMax or pre-trained weights don't exist
+            if(!m_Config.shouldUseInfoMax() || !(m_Config.getOutputPath() / "weights.bin").exists()) {
+                std::cout << "Training on stored snapshots" << std::endl;
+                for(m_NumSnapshots = 0;;m_NumSnapshots++) {
+                    const auto filename = getSnapshotPath(m_NumSnapshots);
+                    
+                    // If file exists, load image and train memory on it
+                    if(filename.exists()) {
+                        std::cout << "." << std::flush;
+                        const auto &processedSnapshot = m_ImageInput->processSnapshot(cv::imread(filename.str()));
+                        cv::imwrite((m_Config.getOutputPath() / ("processed_" + std::to_string(m_NumSnapshots) + ".png")).str(), processedSnapshot);
+                        m_Memory->train(processedSnapshot);
+                    }
+                    // Otherwise, stop searching
+                    else {
+                        break;
+                    }
                 }
-                // Otherwise, stop searching
-                else {
-                    break;
+                std::cout << "Loaded " << m_NumSnapshots << " snapshots" << std::endl;
+                assert(false);
+                // If we are using InfoMax save the weights now
+                if(m_Config.shouldUseInfoMax()) {
+                    InfoMax *infoMax= dynamic_cast<InfoMax*>(m_Memory.get());
+                    infoMax->saveWeights((m_Config.getOutputPath() / "weights.bin").str());
                 }
             }
-            std::cout << "Loaded " << m_NumSnapshots << " snapshots" << std::endl;
             
             // Start directly in testing state
             m_StateMachine.transition(State::WaitToTest);
@@ -397,7 +408,7 @@ private:
                     }
                     // Otherwise drive forwards
                     else {
-                        m_Motor.tank(1.0f, 1.0f);
+                        m_Motor.tank(0.25f, 0.25f);
                     }
                 }
             }
