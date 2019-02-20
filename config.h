@@ -1,6 +1,7 @@
 #pragma once
 
 // Standard C++ includes
+#include <chrono>
 #include <map>
 #include <string>
 
@@ -14,10 +15,12 @@
 //------------------------------------------------------------------------
 class Config
 {
+    using Milliseconds = std::chrono::duration<double, std::milli>;
+    
 public:
-    Config() : m_UseHOG(false), m_Train(true), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
+    Config() : m_UseHOG(false), m_Train(true), m_UseInfoMax(false), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
         m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_MaskImageFilename("mask.png"), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
-        m_JoystickDeadzone(0.25f), m_MoveTimesteps(10), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort),
+        m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TestInterval(300.0), m_TrainInterval(100.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort),
         m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
     {
@@ -28,6 +31,7 @@ public:
     //------------------------------------------------------------------------
     bool shouldUseHOG() const{ return m_UseHOG; }
     bool shouldTrain() const{ return m_Train; }
+    bool shouldUseInfoMax() const{ return m_UseInfoMax; }
     bool shouldSaveTestingDiagnostic() const{ return m_SaveTestingDiagnostic; }
     bool shouldStreamOutput() const{ return m_StreamOutput; }
 
@@ -46,7 +50,9 @@ public:
     
     float getJoystickDeadzone() const{ return m_JoystickDeadzone; }
 
-    int getMoveTimesteps() const{ return m_MoveTimesteps; }
+    bool shouldAutoTrain() const{ return m_AutoTrain; }
+    Milliseconds getTestInterval() const{ return m_TestInterval; }
+    Milliseconds getTrainInterval() const{ return m_TrainInterval; }
     
     bool shouldUseViconTracking() const{ return m_UseViconTracking; }
     int getViconTrackingPort() const{ return m_ViconTrackingPort; }
@@ -82,6 +88,7 @@ public:
         fs << "{";
         fs << "shouldUseHOG" << shouldUseHOG();
         fs << "shouldTrain" << shouldTrain();
+        fs << "shouldUseInfoMax" << shouldUseInfoMax();
         fs << "shouldSaveTestingDiagnostic" << shouldSaveTestingDiagnostic();
         fs << "shouldStreamOutput" << shouldStreamOutput();
         fs << "outputPath" << getOutputPath().str();
@@ -92,7 +99,9 @@ public:
         fs << "numHOGOrientations" << getNumHOGOrientations();
         fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
         fs << "joystickDeadzone" << getJoystickDeadzone();
-        fs << "moveTimesteps" << getMoveTimesteps();
+        fs << "autoTrain" << shouldAutoTrain();
+        fs << "testInterval" << getTestInterval().count();
+        fs << "trainInterval" << getTrainInterval().count();
         fs << "serverListenPort" << getServerListenPort();
         fs << "turnThresholds" << "[";
         for(const auto &t : m_TurnThresholds) {
@@ -124,6 +133,7 @@ public:
         // **NOTE** we use cv::read rather than stream operators as we want to use current values as defaults
         cv::read(node["shouldUseHOG"], m_UseHOG, m_UseHOG);
         cv::read(node["shouldTrain"], m_Train, m_Train);
+        cv::read(node["shouldUseInfoMax"], m_UseInfoMax, m_UseInfoMax);
         cv::read(node["shouldSaveTestingDiagnostic"], m_SaveTestingDiagnostic, m_SaveTestingDiagnostic);
         cv::read(node["shouldStreamOutput"], m_StreamOutput, m_StreamOutput);
         
@@ -146,8 +156,16 @@ public:
         cv::read(node["numHOGOrientations"], m_NumHOGOrientations, m_NumHOGOrientations);
         cv::read(node["numHOGPixelsPerCell"], m_NumHOGPixelsPerCell, m_NumHOGPixelsPerCell);
         cv::read(node["joystickDeadzone"], m_JoystickDeadzone, m_JoystickDeadzone);
-        cv::read(node["moveTimesteps"], m_MoveTimesteps, m_MoveTimesteps);
         cv::read(node["serverListenPort"], m_ServerListenPort, m_ServerListenPort);
+        cv::read(node["autoTrain"], m_AutoTrain, m_AutoTrain);
+        
+        double testInterval;
+        cv::read(node["testInterval"], testInterval, m_TestInterval.count());
+        m_TestInterval = (Milliseconds)testInterval;
+        
+        double trainInterval;
+        cv::read(node["trainInterval"], trainInterval, m_TrainInterval.count());
+        m_TrainInterval = (Milliseconds)trainInterval;
         
         if(node["turnThresholds"].isSeq()) {
             m_TurnThresholds.clear();
@@ -196,6 +214,9 @@ private:
     // Should we start in training mode or use existing data?
     bool m_Train;
 
+    // Should we use InfoMax rather than Perfect Memory
+    bool m_UseInfoMax;
+    
     // Should we write out testing diagnostic information
     bool m_SaveTestingDiagnostic;
     
@@ -224,8 +245,12 @@ private:
     // How large should the deadzone be on the analogue joystick?
     float m_JoystickDeadzone;
     
-    // How many timesteps do we move for before re-calculating IDF?
-    int m_MoveTimesteps;
+    // Should we train automatically every train interval
+    bool m_AutoTrain;
+    
+    // How many milliseconds do we move for before re-calculating IDF?
+    Milliseconds m_TestInterval;
+    Milliseconds m_TrainInterval;
     
     // Listen port used for streaming etc
     int m_ServerListenPort;

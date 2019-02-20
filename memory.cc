@@ -80,7 +80,7 @@ PerfectMemoryConstrained::PerfectMemoryConstrained(const Config &config, const c
 :   PerfectMemory(config, inputSize), m_FOV(config.getMaxSnapshotRotateAngle()), m_ImageWidth(inputSize.width)
 {
 }
-//------------------------------------------------------------------------v
+//------------------------------------------------------------------------
 void PerfectMemoryConstrained::test(const cv::Mat &snapshot)
 {
     // Get 'matrix' of differences from perfect memory
@@ -123,4 +123,69 @@ void PerfectMemoryConstrained::test(const cv::Mat &snapshot)
 
     // Scale difference to match code in ridf_processors.h:57
     setLowestDifference(lowestDifference / 255.0f);
+}
+
+//------------------------------------------------------------------------
+// InfoMax
+//------------------------------------------------------------------------
+InfoMax::InfoMax(const Config &config, const cv::Size &inputSize)
+:   m_InfoMax(inputSize)
+{
+    BOB_ASSERT(config.getMaskImageFilename().empty());
+}
+//------------------------------------------------------------------------
+void InfoMax::test(const cv::Mat &snapshot)
+{
+    // Get heading directly from InfoMax
+    degree_t bestHeading;
+    float lowestDifference;
+    std::tie(bestHeading, lowestDifference, std::ignore) = getInfoMax().getHeading(snapshot);
+
+    // Set best heading and vector length
+    setBestHeading(bestHeading);
+    setLowestDifference(lowestDifference);
+}
+//-----------------------------------------------------------------------
+void InfoMax::train(const cv::Mat &snapshot)
+{
+    getInfoMax().train(snapshot);
+}
+
+//-----------------------------------------------------------------------
+// InfoMaxConstrained
+//-----------------------------------------------------------------------
+InfoMaxConstrained::InfoMaxConstrained(const Config &config, const cv::Size &inputSize)
+:   InfoMax(config, inputSize), m_FOV(config.getMaxSnapshotRotateAngle()), m_ImageWidth(inputSize.width)
+{
+}
+//-----------------------------------------------------------------------
+void InfoMaxConstrained::test(const cv::Mat &snapshot)
+{
+    // Get vector of differences from InfoMax
+    const auto &allDifferences = this->getInfoMax().getImageDifferences(snapshot);
+
+    // Loop through snapshots
+    // **NOTE** this currently uses a super-naive approach as more efficient solution is non-trivial because
+    // columns that represent the rotations are not necessarily contiguous - there is a dis-continuity in the middle
+    this->setLowestDifference(std::numeric_limits<float>::max());
+    this->setBestHeading(0_deg);
+    for(size_t i = 0; i < allDifferences.size(); i++) {
+        // If this snapshot is a better match than current best
+        if(allDifferences[i] < this->getLowestDifference()) {
+            // Convert column into pixel rotation
+            int pixelRotation = i;
+            if(pixelRotation > (m_ImageWidth / 2)) {
+                pixelRotation -= m_ImageWidth;
+            }
+
+            // Convert this into angle
+            const degree_t heading = turn_t((double)pixelRotation / (double)m_ImageWidth);
+
+            // If the distance between this angle from grid and route angle is within FOV, update best
+            if(fabs(heading) < m_FOV) {
+                this->setBestHeading(heading);
+                this->setLowestDifference(allDifferences[i]);
+            }
+        }
+    }
 }

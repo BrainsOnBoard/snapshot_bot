@@ -112,97 +112,24 @@ private:
 //------------------------------------------------------------------------
 // InfoMax
 //------------------------------------------------------------------------
-/*template<typename FloatType>
 class InfoMax : public MemoryBase
 {
-    using InfoMaxType = BoBRobotics::Navigation::InfoMaxRotater<Navigation::InSilicoRotater, FloatType>;
-    using InfoMaxWeightMatrixType = Eigen::Matrix<FloatType, Eigen::Dynamic, Eigen::Dynamic>;
+    using InfoMaxType = BoBRobotics::Navigation::InfoMaxRotater<BoBRobotics::Navigation::InSilicoRotater, float>;
+    using InfoMaxWeightMatrixType = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>;
 
 public:
-    InfoMax(const cv::Size &imSize)
-        : m_InfoMax(createInfoMax(imSize))
-    {
-        // Load mask image
-        if(!config.getMaskImageFilename().empty()) {
-            getPM().setMaskImage(config.getMaskImageFilename());
-        }
-    }
+    InfoMax(const Config &config, const cv::Size &inputSize);
 
-    virtual void test(const cv::Mat &snapshot) override
-    {
-        // Get heading directly from InfoMax
-        degree_t bestHeading;
-        float lowestDifference;
-        std::tie(bestHeading, lowestDifference, std::ignore) = m_InfoMax.getHeading(snapshot);
-
-        // Set best heading and vector length
-        setBestHeading(bestHeading);
-        setLowestDifference(lowestDifference);
-    }
-    
-    virtual void train(const cv::Mat &snapshot) override
-    {
-        getPM().train(snapshot);
-    }
+    virtual void test(const cv::Mat &snapshot) override;
+    virtual void train(const cv::Mat &snapshot) override;
 
 protected:
     //------------------------------------------------------------------------
     // Protected API
     //------------------------------------------------------------------------
-    const InfoMaxType &getInfoMax() const{ return m_InfoMax; }
+    InfoMaxType &getInfoMax(){ return m_InfoMax; }
 
 private:
-    //------------------------------------------------------------------------
-    // Static API
-    //------------------------------------------------------------------------
-    // **TODO** move into BoB robotics
-    static void writeWeights(const InfoMaxWeightMatrixType &weights, const filesystem::path &weightPath)
-    {
-        // Write weights to disk
-        std::ofstream netFile(weightPath.str(), std::ios::binary);
-        const int size[2] { (int) weights.rows(), (int) weights.cols() };
-        netFile.write(reinterpret_cast<const char *>(size), sizeof(size));
-        netFile.write(reinterpret_cast<const char *>(weights.data()), weights.size() * sizeof(FloatType));
-    }
-
-    // **TODO** move into BoB robotics
-    static InfoMaxWeightMatrixType readWeights(const filesystem::path &weightPath)
-    {
-        // Open file
-        std::ifstream is(weightPath.str(), std::ios::binary);
-        if (!is.good()) {
-            throw std::runtime_error("Could not open " + weightPath.str());
-        }
-
-        // The matrix size is encoded as 2 x int32_t
-        int32_t size[2];
-        is.read(reinterpret_cast<char *>(&size), sizeof(size));
-
-        // Create data array and fill it
-        InfoMaxWeightMatrixType data(size[0], size[1]);
-        is.read(reinterpret_cast<char *>(data.data()), sizeof(FloatType) * data.size());
-
-        return std::move(data);
-    }
-
-    static InfoMaxType createInfoMax(const cv::Size &imSize, const Navigation::ImageDatabase &route)
-    {
-        // Create path to weights from directory containing route
-        const filesystem::path weightPath = filesystem::path(route.getPath()) / "infomax.bin";
-        if(weightPath.exists()) {
-            std::cout << "Loading weights from " << weightPath << std::endl;
-            InfoMaxType infomax(imSize, readWeights(weightPath));
-            return std::move(infomax);
-        }
-        else {
-            InfoMaxType infomax(imSize);
-            infomax.trainRoute(route, true);
-            writeWeights(infomax.getWeights(), weightPath.str());
-            std::cout << "Trained on " << route.size() << " snapshots" << std::endl;
-            return std::move(infomax);
-        }
-    }
-
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
@@ -212,53 +139,17 @@ private:
 //------------------------------------------------------------------------
 // InfoMaxConstrained
 //------------------------------------------------------------------------
-template<typename FloatType>
-class InfoMaxConstrained : public InfoMax<FloatType>
+class InfoMaxConstrained : public InfoMax
 {
 public:
-    InfoMaxConstrained(const cv::Size &imSize, degree_t fov)
-        : InfoMax<FloatType>(imSize), m_FOV(fov), m_ImageWidth(imSize.width)
-    {
-    }
+    InfoMaxConstrained(const Config &config, const cv::Size &inputSize);
 
-    virtual void test(const cv::Mat &snapshot) override
-    {
-        // Get vector of differences from InfoMax
-        const auto &allDifferences = this->getInfoMax().getImageDifferences(snapshot);
-
-        // Loop through snapshots
-        // **NOTE** this currently uses a super-naive approach as more efficient solution is non-trivial because
-        // columns that represent the rotations are not necessarily contiguous - there is a dis-continuity in the middle
-        this->setLowestDifference(std::numeric_limits<float>::max());
-        this->setBestHeading(0_deg);
-        for(size_t i = 0; i < allDifferences.size(); i++) {
-            // If this snapshot is a better match than current best
-            if(allDifferences[i] < this->getLowestDifference()) {
-                // Convert column into pixel rotation
-                int pixelRotation = i;
-                if(pixelRotation > (m_ImageWidth / 2)) {
-                    pixelRotation -= m_ImageWidth;
-                }
-
-                // Convert this into angle
-                const degree_t heading = turn_t((double)pixelRotation / (double)m_ImageWidth);
-
-                // If the distance between this angle from grid and route angle is within FOV, update best
-                if(fabs(heading) < m_FOV) {
-                    this->setBestHeading(heading);
-                    this->setLowestDifference(allDifferences[i]);
-                }
-            }
-        }
-
-        // **TODO** calculate vector length
-        this->setVectorLength(1.0f);
-    }
+    virtual void test(const cv::Mat &snapshot) override;
 
 private:
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
-    const degree_t m_FOV;
+    const units::angle::degree_t m_FOV;
     const int m_ImageWidth;
-};*/
+};

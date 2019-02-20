@@ -1,4 +1,5 @@
 // Standard C++ includes
+#include <chrono>
 #include <fstream>
 #include <limits>
 #include <memory>
@@ -40,7 +41,9 @@ namespace
 enum class State
 {
     Invalid,
+    WaitToTrain,
     Training,
+    WaitToTest,
     Testing,
 };
 
@@ -49,6 +52,8 @@ enum class State
 //------------------------------------------------------------------------
 class RobotFSM : FSM<State>::StateHandler
 {
+    using TimePoint = std::chrono::high_resolution_clock::time_point;
+
 public:
     RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
@@ -64,11 +69,25 @@ public:
         m_ImageInput.reset(new ImageInputRaw(m_Config));
         
         // Create appropriate type of memory
-        if(m_Config.getMaxSnapshotRotateAngle() < 180_deg) {
-            m_Memory.reset(new PerfectMemory(m_Config, m_ImageInput->getOutputSize()));
+        if(m_Config.shouldUseInfoMax()) {
+            if(m_Config.getMaxSnapshotRotateAngle() < 180_deg) {
+                std::cout << "Creating InfoMaxConstrained" << std::endl;
+                m_Memory.reset(new InfoMaxConstrained(m_Config, m_ImageInput->getOutputSize()));
+            }
+            else {
+                std::cout << "Creating InfoMax" << std::endl;
+                m_Memory.reset(new InfoMax(m_Config, m_ImageInput->getOutputSize()));
+            }
         }
         else {
-            m_Memory.reset(new PerfectMemoryConstrained(m_Config, m_ImageInput->getOutputSize()));
+            if(m_Config.getMaxSnapshotRotateAngle() < 180_deg) {
+                std::cout << "Creating PerfectMemoryConstrained" << std::endl;
+                m_Memory.reset(new PerfectMemoryConstrained(m_Config, m_ImageInput->getOutputSize()));
+            }
+            else {
+                std::cout << "Creating PerfectMemory" << std::endl;
+                m_Memory.reset(new PerfectMemory(m_Config, m_ImageInput->getOutputSize()));
+            }
         }
 
         // If we should stream output, run server thread
@@ -112,14 +131,16 @@ public:
         // If we should train
         if(m_Config.shouldTrain()) {
             // Start in training state
-            m_StateMachine.transition(State::Training);
+            m_StateMachine.transition(State::WaitToTrain);
         }
         else {
-           for(m_NumSnapshots = 0;;m_NumSnapshots++) {
+            std::cout << "Training on stored snapshots" << std::endl;
+            for(m_NumSnapshots = 0;;m_NumSnapshots++) {
                 const auto filename = getSnapshotPath(m_NumSnapshots);
                 
                 // If file exists, load image and train memory on it
                 if(filename.exists()) {
+                    std::cout << "." << std::flush;
                     m_Memory->train(m_ImageInput->processSnapshot(cv::imread(filename.str())));
                 }
                 // Otherwise, stop searching
@@ -130,7 +151,7 @@ public:
             std::cout << "Loaded " << m_NumSnapshots << " snapshots" << std::endl;
             
             // Start directly in testing state
-            m_StateMachine.transition(State::Testing);
+            m_StateMachine.transition(State::WaitToTest);
         }
     }
     
@@ -183,9 +204,21 @@ private:
             
             // Unwrap frame
             m_Unwrapper.unwrap(m_Output, m_Unwrapped);
+            
+            cv::waitKey(1);
         }
-
-        if(state == State::Training) {
+	
+        if(state == State::WaitToTrain) {
+            if(event == Event::Enter) {
+                std::cout << "Press B to start training" << std::endl;
+            }
+            else if(event == Event::Update) {
+                if(m_Joystick.isPressed(HID::JButton::B)) {
+                    m_StateMachine.transition(State::Training);
+                }
+            }
+        }
+        else if(state == State::Training) {
             if(event == Event::Enter) {
                 std::cout << "Starting training" << std::endl;
 
@@ -204,11 +237,16 @@ private:
                     m_LogFile << "Frame, X, Y, Z, Rx, Ry, Rz" << std::endl;
                 }
 
+                // Reset train time and test image
+                m_LastTrainTime = std::chrono::high_resolution_clock::now();
+                
                 // Delete old snapshots
                 const std::string snapshotWildcard = (m_Config.getOutputPath() / "snapshot_*.png").str();
                 system(("rm -f " + snapshotWildcard).c_str());
             }
             else if(event == Event::Update) {
+                const auto currentTime = std::chrono::high_resolution_clock::now();
+                
                 // While testing, if we should stream output, send unwrapped frame
                 /*if(m_Config.shouldStreamOutput()) {
                     m_NetSink.sendFrame(m_Unwrapped);
@@ -218,7 +256,10 @@ private:
                 m_Motor.drive(m_Joystick, m_Config.getJoystickDeadzone());
                 
                 // If A is pressed
-                if(m_Joystick.isPressed(HID::JButton::A)) {
+                if(m_Joystick.isPressed(HID::JButton::A) || (m_Config.shouldAutoTrain() && (currentTime - m_LastTrainTime) > m_Config.getTrainInterval())) {
+                    // Update last train time
+                    m_LastTrainTime = currentTime;
+                    
                     // Train memory
                     std::cout << "\tTrained snapshot" << std::endl;
                     m_Memory->train(m_ImageInput->processSnapshot(m_Unwrapped));
@@ -239,6 +280,16 @@ private:
                 }
                 // Otherwise, if B is pressed, go to testing
                 else if(m_Joystick.isPressed(HID::JButton::B)) {
+                    m_StateMachine.transition(State::WaitToTest);
+                }
+            }
+        }
+        else if(state == State::WaitToTest) {
+            if(event == Event::Enter) {
+                std::cout << "Press B to start testing" << std::endl;
+            }
+            else if(event == Event::Update) {
+                if(m_Joystick.isPressed(HID::JButton::B)) {
                     m_StateMachine.transition(State::Testing);
                 }
             }
@@ -271,8 +322,8 @@ private:
                     m_LogFile << std::endl;
                 }
 
-                // Reset move time and test image
-                m_MoveTime = 0;
+                // Reset test time and test image
+                m_LastTestTime = std::chrono::high_resolution_clock::now();
                 m_TestImageIndex = 0;
 
                 // Delete old testing images
@@ -280,11 +331,12 @@ private:
                 system(("rm -f " + testWildcard).c_str());
             }
             else if(event == Event::Update) {
+                const auto currentTime = std::chrono::high_resolution_clock::now();
+                
                 // If it's time to move
-                // **TODO** use clock and units
-                if(m_MoveTime == 0) {
+                if((currentTime - m_LastTestTime) > m_Config.getTestInterval()) {
                     // Reset move time
-                    m_MoveTime = m_Config.getMoveTimesteps();
+                    m_LastTestTime = currentTime;
 
                     // Find matching snapshot
                     m_Memory->test(m_ImageInput->processSnapshot(m_Unwrapped));
@@ -340,17 +392,13 @@ private:
                     
                     // If we should turn, do so
                     if(turnSpeed > 0.0f) {
-                        const float motorTurn = (m_Memory->getBestHeading() <  0.0_deg) ? -turnSpeed : turnSpeed;
+                        const float motorTurn = (m_Memory->getBestHeading() <  0.0_deg) ? turnSpeed : -turnSpeed;
                         m_Motor.tank(motorTurn, -motorTurn);
                     }
                     // Otherwise drive forwards
                     else {
                         m_Motor.tank(1.0f, 1.0f);
                     }
-                }
-                // Otherwise just decrement move time
-                else {
-                    m_MoveTime--;
                 }
             }
         }
@@ -393,8 +441,8 @@ private:
     // Motor driver
     Robots::Norbot m_Motor;
 
-    // 'Timer' used to move between snapshot tests
-    int m_MoveTime;
+    TimePoint m_LastTestTime;
+    TimePoint m_LastTrainTime;
 
     // Index of test image to write
     size_t m_TestImageIndex;
