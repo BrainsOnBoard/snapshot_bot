@@ -34,4 +34,4 @@ computer: computer.cc computer.d
 %.d: ;
 
 clean:
-	rm -f offline_train computer snapshot_bot *.d
+	rm -f offline_train computer snapshot_bot *.d *.o
