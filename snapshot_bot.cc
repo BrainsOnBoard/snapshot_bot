@@ -66,7 +66,9 @@ public:
         filesystem::create_directory(m_Config.getOutputPath());
     
         // Create image input
-        m_ImageInput.reset(new ImageInputRaw(m_Config));
+        //m_ImageInput.reset(new ImageInputRaw(m_Config));
+        m_ImageInput.reset(new ImageInputBinary(m_Config));
+        //m_ImageInput.reset(new ImageInputHorizon(m_Config));
         
         // Create appropriate type of memory
         if(m_Config.shouldUseInfoMax()) {
@@ -144,7 +146,7 @@ public:
                     if(filename.exists()) {
                         std::cout << "." << std::flush;
                         const auto &processedSnapshot = m_ImageInput->processSnapshot(cv::imread(filename.str()));
-                        cv::imwrite((m_Config.getOutputPath() / ("processed_" + std::to_string(m_NumSnapshots) + ".png")).str(), processedSnapshot);
+                        //cv::imwrite((m_Config.getOutputPath() / ("processed_" + std::to_string(m_NumSnapshots) + ".png")).str(), processedSnapshot);
                         m_Memory->train(processedSnapshot);
                     }
                     // Otherwise, stop searching
@@ -153,7 +155,7 @@ public:
                     }
                 }
                 std::cout << "Loaded " << m_NumSnapshots << " snapshots" << std::endl;
-                assert(false);
+
                 // If we are using InfoMax save the weights now
                 if(m_Config.shouldUseInfoMax()) {
                     InfoMax *infoMax= dynamic_cast<InfoMax*>(m_Memory.get());

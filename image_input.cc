@@ -34,7 +34,8 @@ const cv::Mat &ImageInputRaw::processSnapshot(const cv::Mat &snapshot)
 // ImageInputBinary
 //----------------------------------------------------------------------------
 ImageInputBinary::ImageInputBinary(const Config &config)
-:   ImageInput(config), m_SegmentIndices(config.getUnwrapRes(), CV_32SC1), m_SegmentedImage(config.getUnwrapRes(), CV_8UC1)
+:   ImageInput(config), m_SegmentIndices(config.getUnwrapRes(), CV_32SC1), 
+    m_SegmentedImage(config.getUnwrapRes().height - 2, config.getUnwrapRes().width - 2, CV_8UC1)
 {
     // Read marker image
     // **NOTE** will read 8-bit per channel grayscale
@@ -56,27 +57,34 @@ ImageInputBinary::ImageInputBinary(const Config &config)
 const cv::Mat &ImageInputBinary::processSnapshot(const cv::Mat &snapshot)
 {
     // Read indices of segments
-    const cv::Mat &segmentedIndices = readSegmentIndices(snapshot);
-    BOB_ASSERT(false);
-    return segmentedIndices;
+    const cv::Mat segmentedIndices = readSegmentIndices(snapshot);
+    
+    // Convert to greyscale image
+    // **NOTE** segmentedIndices should contain -1, 1 and 2 - this rescales to black, white and grey
+    segmentedIndices.convertTo(m_SegmentedImage, CV_8UC1, 85.0, 85.0);
+    BOB_ASSERT(m_SegmentedImage.size() == getOutputSize());
+    return m_SegmentedImage;
 }
 //----------------------------------------------------------------------------
-const cv::Mat &ImageInputBinary::readSegmentIndices(const cv::Mat &snapshot)
+cv::Mat ImageInputBinary::readSegmentIndices(const cv::Mat &snapshot)
 {
     // Make a copy of marker image to perform segmentation on
     m_MarkerImage.copyTo(m_SegmentIndices);
     
     // Segment!
     cv::watershed(snapshot, m_SegmentIndices);
-    return m_SegmentIndices;
+    
+    // For some reason watershed thresholding results in a border around image so return ROI inside this
+    // **NOTE** we don't use getOutputSize() here as it may be overriden in derived classes
+    return cv::Mat(m_SegmentIndices, cv::Rect(1, 1, getInputSize().width - 2, getInputSize().height - 2));
 }
 
 //----------------------------------------------------------------------------
 // ImageInputHorizon
 //----------------------------------------------------------------------------
 ImageInputHorizon::ImageInputHorizon(const Config &config)
-:   ImageInputBinary(config), m_HorizonVector(1, config.getUnwrapRes().width, CV_8UC1),
-    m_ColumnHorizonPixelsSum(config.getUnwrapRes().width), m_ColumnHorizonPixelsCount(config.getUnwrapRes().width)
+:   ImageInputBinary(config), m_HorizonVector(1, config.getUnwrapRes().width - 2, CV_8UC1),
+    m_ColumnHorizonPixelsSum(config.getUnwrapRes().width - 2), m_ColumnHorizonPixelsCount(config.getUnwrapRes().width - 2)
 {
     // Check image will be representable as 8-bit value
     BOB_ASSERT(config.getUnwrapRes().height < 0xFF);
@@ -85,29 +93,24 @@ ImageInputHorizon::ImageInputHorizon(const Config &config)
 const cv::Mat &ImageInputHorizon::processSnapshot(const cv::Mat &snapshot)
 {
     // Read indices of segments
-    const cv::Mat &segmentedIndices = readSegmentIndices(snapshot);
+    const cv::Mat segmentedIndices = readSegmentIndices(snapshot);
 
     // Zero counts and sum of horizon pixels per column
-    m_ColumnHorizonPixelsSum.assign(segmentedIndices.cols, 0);
-    m_ColumnHorizonPixelsCount.assign(segmentedIndices.cols, 0);
-    BOB_ASSERT(m_ColumnHorizonPixelsSum.size() == (size_t)segmentedIndices.cols);
-    BOB_ASSERT(m_ColumnHorizonPixelsCount.size() == (size_t)segmentedIndices.cols);
+    const int numColumns = segmentedIndices.size().width;
+    m_ColumnHorizonPixelsSum.assign(numColumns, 0);
+    m_ColumnHorizonPixelsCount.assign(numColumns, 0);
+    BOB_ASSERT(m_ColumnHorizonPixelsSum.size() == (size_t)numColumns);
+    BOB_ASSERT(m_ColumnHorizonPixelsCount.size() == (size_t)numColumns);
     
     // Loop through image columns
-    const int32_t *data = reinterpret_cast<const int32_t*>(segmentedIndices.data);
-    for(int y = 0; y < segmentedIndices.rows; y++) {
-        for(int x = 0; x < segmentedIndices.cols; x++) {
-            // Get next index
-            const int32_t index = *data++;
+    for(auto p = segmentedIndices.begin<int32_t>(); p != segmentedIndices.end<int32_t>(); p++) {
+        // If this is a horizon pixel
+        if(*p == -1) {
+            // Increment number of pixels per column
+            m_ColumnHorizonPixelsCount[p.pos().x]++;
             
-            // If this is a horizon pixel
-            if(index == -1) {
-                // Increment number of pixels per column
-                m_ColumnHorizonPixelsCount[x]++;
-                
-                // Add to total in horizon
-                m_ColumnHorizonPixelsCount[x] += y;
-            }
+            // Add to total in horizon
+            m_ColumnHorizonPixelsSum[p.pos().x] += p.pos().y;
         }
     }
     

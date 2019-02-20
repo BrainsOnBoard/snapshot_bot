@@ -65,14 +65,14 @@ public:
     // ImageInput virtuals
     //----------------------------------------------------------------------------
     virtual const cv::Mat &processSnapshot(const cv::Mat &snapshot) override;
-
+    virtual cv::Size getOutputSize() const override { return cv::Size(getInputSize().width - 2, getInputSize().height - 2); }
     
 protected:
     //----------------------------------------------------------------------------
     // Protected API
     //----------------------------------------------------------------------------
     // Reads unwrapped frame and performs segmentation
-    const cv::Mat &readSegmentIndices(const cv::Mat &snapshot);
+    cv::Mat readSegmentIndices(const cv::Mat &snapshot);
     
 private:
     //----------------------------------------------------------------------------
@@ -110,7 +110,7 @@ public:
     
     virtual cv::Size getOutputSize() const override
     {
-        return cv::Size(getInputSize().width, 1);
+        return cv::Size(getInputSize().width - 2, 1);
     }
     
 private:
