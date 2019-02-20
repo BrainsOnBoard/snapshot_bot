@@ -1,6 +1,9 @@
 #define NO_HEADER_DEFINITIONS
 #include "memory.h"
 
+// Standard C++ includes
+#include <fstream>
+
 // Snapshot bot includes
 #include "config.h"
 
@@ -149,6 +152,15 @@ void InfoMax::test(const cv::Mat &snapshot)
 void InfoMax::train(const cv::Mat &snapshot)
 {
     getInfoMax().train(snapshot);
+}
+//-----------------------------------------------------------------------
+void InfoMax::saveWeights(const std::string &filename) const
+{
+    // Write weights to disk
+    std::ofstream netFile(filename, std::ios::binary);
+    const int size[2] { (int) getInfoMax().getWeights().rows(), (int) getInfoMax().getWeights().cols() };
+    netFile.write(reinterpret_cast<const char *>(size), sizeof(size));
+    netFile.write(reinterpret_cast<const char *>(getInfoMax().getWeights().data()), getInfoMax().getWeights().size() * sizeof(float));
 }
 
 //-----------------------------------------------------------------------

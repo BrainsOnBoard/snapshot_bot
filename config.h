@@ -5,6 +5,9 @@
 #include <map>
 #include <string>
 
+// OpenCV
+#include <opencv2/opencv.hpp>
+
 // BoB robotics includes
 #include "net/connection.h"
 #include "third_party/path.h"
@@ -19,7 +22,7 @@ class Config
     
 public:
     Config() : m_UseHOG(false), m_Train(true), m_UseInfoMax(false), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
-        m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_MaskImageFilename("mask.png"), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
+        m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
         m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TestInterval(300.0), m_TrainInterval(100.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort),
         m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
