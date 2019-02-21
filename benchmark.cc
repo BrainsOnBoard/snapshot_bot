@@ -24,11 +24,13 @@ int main(int argc, char *argv[])
             configFile["config"] >> config;
         }
     }
-    
+
+    // Create image input
     std::unique_ptr<ImageInput> imageInput = createImageInput(config);
-    
-    // Perfect memory
+
+    // Create memory
     std::unique_ptr<MemoryBase> memory = createMemory(config, imageInput->getOutputSize());
+    PerfectMemory *perfectMemory = dynamic_cast<PerfectMemory*>(memory.get());
     
     // Create reader to efficiently read the three columns we care about
     // 1) Load config
@@ -49,6 +51,34 @@ int main(int argc, char *argv[])
             memory->train(imageInput->processSnapshot(cv::imread("../snapshot_bot_reconstruction/" + filename)));
         }
         std::cout << std::endl;
+    }
+    
+    {
+        BoBRobotics::Timer<> t("Testing:");
+        io::CSVReader<3> testingCSV("../snapshot_bot_reconstruction/outdoor/testing" + config.getTestingSuffix() + ".csv");
+        
+        testingCSV.read_header(io::ignore_extra_column, "Best heading [degrees]", "Best snapshot index", "Filename");
+        
+        std::string bestHeadingDegreesStr;
+        size_t bestSnapshotIndex;
+        std::string filename;
+        while(testingCSV.read_row(bestHeadingDegreesStr, bestSnapshotIndex, filename)) {
+            std::cout << "." << std::flush;
+            memory->test(imageInput->processSnapshot(cv::imread("../snapshot_bot_reconstruction/" + config.getOutputPath().str() + "/" + filename)));
+            
+            const double bestHeadingDegrees = std::stod(bestHeadingDegreesStr.substr(0, bestHeadingDegreesStr.size() - 4));
+            
+            if(fabs(bestHeadingDegrees - perfectMemory->getBestHeading().value()) > 0.01) {
+                std::cerr << "BEST HEADING ERROR:" << bestHeadingDegrees << " vs " << perfectMemory->getBestHeading().value() << std::endl;
+                break;
+            }
+            
+            if(perfectMemory && perfectMemory->getBestSnapshotIndex() != bestSnapshotIndex) {
+                std::cerr << "BEST SNAPSHOT ERROR" << std::endl;
+                break;
+            }
+        }
+       
     }
     return EXIT_SUCCESS;
 }
