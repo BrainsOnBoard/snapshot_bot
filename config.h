@@ -21,9 +21,9 @@ class Config
     using Milliseconds = std::chrono::duration<double, std::milli>;
     
 public:
-    Config() : m_UseHOG(false), m_Train(true), m_UseInfoMax(false), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
+    Config() : m_UseHOG(false), m_UseBinaryImage(false), m_UseHorizonVector(false), m_Train(true), m_UseInfoMax(false), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
         m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
-        m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TestInterval(300.0), m_TrainInterval(100.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort),
+        m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TestInterval(300.0), m_TrainInterval(100.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort), m_MoveSpeed(0.25),
         m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
     {
@@ -33,6 +33,8 @@ public:
     // Public API
     //------------------------------------------------------------------------
     bool shouldUseHOG() const{ return m_UseHOG; }
+    bool shouldUseBinaryImage() const{ return m_UseBinaryImage; }
+    bool shouldUseHorizonVector() const{ return m_UseHorizonVector; }
     bool shouldTrain() const{ return m_Train; }
     bool shouldUseInfoMax() const{ return m_UseInfoMax; }
     bool shouldSaveTestingDiagnostic() const{ return m_SaveTestingDiagnostic; }
@@ -41,9 +43,11 @@ public:
     units::angle::degree_t getMaxSnapshotRotateAngle() const{ return units::angle::degree_t(m_MaxSnapshotRotateDegrees); }
     
     const filesystem::path &getOutputPath() const{ return m_OutputPath; }
-
+    const std::string &getTestingSuffix() const{ return m_TestingSuffix; }
+    
     const cv::Size &getUnwrapRes() const{ return m_UnwrapRes; }
 
+    
     const std::string &getMaskImageFilename() const{ return m_MaskImageFilename; }
     const std::string &getWatershedMarkerImageFilename() const{ return m_WatershedMarkerImageFilename; }
     
@@ -69,6 +73,8 @@ public:
     
     int getServerListenPort() const{ return m_ServerListenPort; }
     
+    float getMoveSpeed() const{ return m_MoveSpeed; }
+    
     float getTurnSpeed(units::angle::degree_t angleDifference) const
     {
         const auto absoluteAngleDifference = units::math::fabs(angleDifference);
@@ -90,11 +96,14 @@ public:
     {
         fs << "{";
         fs << "shouldUseHOG" << shouldUseHOG();
+        fs << "shouldUseBinaryImage" << shouldUseBinaryImage();
+        fs << "shouldUseHorizonVector" << shouldUseHorizonVector();
         fs << "shouldTrain" << shouldTrain();
         fs << "shouldUseInfoMax" << shouldUseInfoMax();
         fs << "shouldSaveTestingDiagnostic" << shouldSaveTestingDiagnostic();
         fs << "shouldStreamOutput" << shouldStreamOutput();
         fs << "outputPath" << getOutputPath().str();
+        fs << "testingSuffix" << getTestingSuffix();
         fs << "maxSnapshotRotateDegrees" << getMaxSnapshotRotateAngle().value();
         fs << "unwrapRes" << getUnwrapRes();
         fs << "maskImageFilename" << getMaskImageFilename();
@@ -106,6 +115,7 @@ public:
         fs << "testInterval" << getTestInterval().count();
         fs << "trainInterval" << getTrainInterval().count();
         fs << "serverListenPort" << getServerListenPort();
+        fs << "moveSpeed" << getMoveSpeed();
         fs << "turnThresholds" << "[";
         for(const auto &t : m_TurnThresholds) {
             fs << "[" << t.first.value() << t.second << "]";
@@ -135,16 +145,25 @@ public:
         // Read settings
         // **NOTE** we use cv::read rather than stream operators as we want to use current values as defaults
         cv::read(node["shouldUseHOG"], m_UseHOG, m_UseHOG);
+        cv::read(node["shouldUseBinaryImage"], m_UseBinaryImage, m_UseBinaryImage);
+        cv::read(node["shouldUseHorizonVector"], m_UseHorizonVector, m_UseHorizonVector);
         cv::read(node["shouldTrain"], m_Train, m_Train);
         cv::read(node["shouldUseInfoMax"], m_UseInfoMax, m_UseInfoMax);
         cv::read(node["shouldSaveTestingDiagnostic"], m_SaveTestingDiagnostic, m_SaveTestingDiagnostic);
         cv::read(node["shouldStreamOutput"], m_StreamOutput, m_StreamOutput);
+        
+        // Assert that configuration is valid
+        BOB_ASSERT(!m_UseBinaryImage || !m_UseHorizonVector);
         
         // **YUCK** why does OpenCV (at least my version) not have a cv::read overload for std::string!?
         cv::String outputPath;
         cv::read(node["outputPath"], outputPath, m_OutputPath.str());
         m_OutputPath = (std::string)outputPath;
 
+        cv::String testingSuffix;
+        cv::read(node["testingSuffix"], testingSuffix, m_TestingSuffix);
+        m_TestingSuffix = (std::string)testingSuffix;
+        
         cv::read(node["maxSnapshotRotateDegrees"], m_MaxSnapshotRotateDegrees, m_MaxSnapshotRotateDegrees);
         cv::read(node["unwrapRes"], m_UnwrapRes, m_UnwrapRes);
 
@@ -161,6 +180,7 @@ public:
         cv::read(node["joystickDeadzone"], m_JoystickDeadzone, m_JoystickDeadzone);
         cv::read(node["serverListenPort"], m_ServerListenPort, m_ServerListenPort);
         cv::read(node["autoTrain"], m_AutoTrain, m_AutoTrain);
+        cv::read(node["moveSpeed"], m_MoveSpeed, m_MoveSpeed);
         
         double testInterval;
         cv::read(node["testInterval"], testInterval, m_TestInterval.count());
@@ -214,6 +234,10 @@ private:
     // Should we use HOG features or raw images?
     bool m_UseHOG;
     
+    bool m_UseBinaryImage;
+    
+    bool m_UseHorizonVector;
+    
     // Should we start in training mode or use existing data?
     bool m_Train;
 
@@ -228,6 +252,9 @@ private:
     
     // Path to store snapshots etc
     filesystem::path m_OutputPath;
+    
+    // Suffix to add to end of testing images and csvs
+    std::string m_TestingSuffix;
 
     // Maximum (absolute) angle snapshots will be rotated by
     double m_MaxSnapshotRotateDegrees;
@@ -257,6 +284,9 @@ private:
     
     // Listen port used for streaming etc
     int m_ServerListenPort;
+    
+    // How fast robot should move when heading to snapshot
+    float m_MoveSpeed;
     
     // RDF angle difference thresholds that trigger different turning speeds
     std::map<units::angle::degree_t, float> m_TurnThresholds;

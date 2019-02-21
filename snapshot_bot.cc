@@ -53,7 +53,8 @@ enum class State
 class RobotFSM : FSM<State>::StateHandler
 {
     using TimePoint = std::chrono::high_resolution_clock::time_point;
-
+    using Seconds = std::chrono::duration<double, std::ratio<1>>;
+    
 public:
     RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
@@ -66,9 +67,15 @@ public:
         filesystem::create_directory(m_Config.getOutputPath());
     
         // Create image input
-        //m_ImageInput.reset(new ImageInputRaw(m_Config));
-        m_ImageInput.reset(new ImageInputBinary(m_Config));
-        //m_ImageInput.reset(new ImageInputHorizon(m_Config));
+        if(m_Config.shouldUseHorizonVector()) {
+            m_ImageInput.reset(new ImageInputHorizon(m_Config));
+        }
+        else if(m_Config.shouldUseBinaryImage()) {
+            m_ImageInput.reset(new ImageInputBinary(m_Config));
+        }
+        else {
+            m_ImageInput.reset(new ImageInputRaw(m_Config));
+        }
         
         // Create appropriate type of memory
         if(m_Config.shouldUseInfoMax()) {
@@ -244,14 +251,19 @@ private:
                     m_LogFile.close();
                 }
 
-                // If Vicon tracking is available, open log file and write header
+                m_LogFile.open((m_Config.getOutputPath() / "training.csv").str());
+                
+                // Write header
+                m_LogFile << "Time [s], Filename";
+                
+                // If Vicon tracking is available, write additional header
                 if(m_Config.shouldUseViconTracking()) {
-                    m_LogFile.open((m_Config.getOutputPath() / "snapshots.csv").str());
-                    m_LogFile << "Frame, X, Y, Z, Rx, Ry, Rz" << std::endl;
+                    m_LogFile << ", Frame, X, Y, Z, Rx, Ry, Rz";
                 }
+                m_LogFile << std::endl;
 
                 // Reset train time and test image
-                m_LastTrainTime = std::chrono::high_resolution_clock::now();
+                m_LastTrainTime = m_RecordingStartTime = std::chrono::high_resolution_clock::now();
                 
                 // Delete old snapshots
                 const std::string snapshotWildcard = (m_Config.getOutputPath() / "snapshot_*.png").str();
@@ -278,7 +290,11 @@ private:
                     m_Memory->train(m_ImageInput->processSnapshot(m_Unwrapped));
                     
                     // Write raw snapshot to disk
-                    cv::imwrite(getSnapshotPath(m_NumSnapshots++).str(), m_Unwrapped);
+                    const std::string filename = getSnapshotPath(m_NumSnapshots++).str();
+                    cv::imwrite(filename, m_Unwrapped);
+                    
+                    // Write time
+                    m_LogFile << ((Seconds)(currentTime - m_RecordingStartTime)).count() << ", " << filename;
                     
                     // If Vicon tracking is available
                     if(m_Config.shouldUseViconTracking()) {
@@ -288,8 +304,9 @@ private:
                         const auto &attitude = objectData.getAttitude<units::angle::degree_t>();
 
                         // Write to CSV
-                        m_LogFile << objectData.getFrameNumber() << ", " << position[0] << ", " << position[1] << ", " << position[2] << ", " << attitude[0] << ", " << attitude[1] << ", " << attitude[2] << std::endl;
+                        m_LogFile << ", " << objectData.getFrameNumber() << ", " << position[0] << ", " << position[1] << ", " << position[2] << ", " << attitude[0] << ", " << attitude[1] << ", " << attitude[2];
                     }
+                    m_LogFile << std::endl;
                 }
                 // Otherwise, if B is pressed, go to testing
                 else if(m_Joystick.isPressed(HID::JButton::B)) {
@@ -320,27 +337,33 @@ private:
                     m_LogFile.close();
                 }
 
-                // If we should save diagnostics when testing
-                if(m_Config.shouldSaveTestingDiagnostic()) {
-                    // Open log file
-                    m_LogFile.open((m_Config.getOutputPath() / "testing.csv").str());
+                
+                // Open log file
+                m_LogFile.open((m_Config.getOutputPath() / ("testing" + m_Config.getTestingSuffix() + ".csv")).str());
 
-                    // Write memory-specific CSV header
-                    m_Memory->writeCSVHeader(m_LogFile);
-                    
-                    // If Vicon tracking is available, write additional header fields
-                    if(m_Config.shouldUseViconTracking()) {
-                        m_LogFile << ", Frame number, X, Y, Z, Rx, Ry, Rz";
-                    }
-                    m_LogFile << std::endl;
+                // Write heading for time column
+                m_LogFile << "Time [s], ";
+                
+                // Write memory-specific CSV header
+                m_Memory->writeCSVHeader(m_LogFile);
+                
+                // If Vicon tracking is available, write additional header fields
+                if(m_Config.shouldUseViconTracking()) {
+                    m_LogFile << ", Frame number, X, Y, Z, Rx, Ry, Rz";
                 }
+                
+                if(m_Config.shouldSaveTestingDiagnostic()) {
+                    m_LogFile << ", Filename";
+                }
+                m_LogFile << std::endl;
+                
 
                 // Reset test time and test image
-                m_LastTestTime = std::chrono::high_resolution_clock::now();
+                m_LastTestTime = m_RecordingStartTime = std::chrono::high_resolution_clock::now();
                 m_TestImageIndex = 0;
 
                 // Delete old testing images
-                const std::string testWildcard = (m_Config.getOutputPath() / "test_*.png").str();
+                const std::string testWildcard = (m_Config.getOutputPath() / ("test" +  m_Config.getTestingSuffix() + "_*.png")).str();
                 system(("rm -f " + testWildcard).c_str());
             }
             else if(event == Event::Update) {
@@ -353,28 +376,35 @@ private:
 
                     // Find matching snapshot
                     m_Memory->test(m_ImageInput->processSnapshot(m_Unwrapped));
+                
+                    // Write time
+                    m_LogFile << ((Seconds)(currentTime - m_RecordingStartTime)).count() << ", ";
+                    
+                    // Write memory-specific CSV logging
+                    m_Memory->writeCSVLine(m_LogFile);
+                    
+                    // If vicon tracking is available
+                    if(m_Config.shouldUseViconTracking()) {
+                        // Get tracking data
+                        auto objectData = m_ViconTracking.getObjectData(0);
+                        const auto &position = objectData.getPosition<units::length::millimeter_t>();
+                        const auto &attitude = objectData.getAttitude<units::angle::degree_t>();
 
+                        // Write extra logging data
+                        m_LogFile << ", " << objectData.getFrameNumber() << ", " << position[0] << ", " << position[1] << ", " << position[2] << ", " << attitude[0] << ", " << attitude[1] << ", " << attitude[2];
+                    }
+                    
+                
                     // If we should save diagnostics when testing
                     if(m_Config.shouldSaveTestingDiagnostic()) {
-                        // Write memory-specific CSV logging
-                        m_Memory->writeCSVLine(m_LogFile);
-                        
-                        // If vicon tracking is available
-                        if(m_Config.shouldUseViconTracking()) {
-                            // Get tracking data
-                            auto objectData = m_ViconTracking.getObjectData(0);
-                            const auto &position = objectData.getPosition<units::length::millimeter_t>();
-                            const auto &attitude = objectData.getAttitude<units::angle::degree_t>();
-
-                            // Write extra logging data
-                            m_LogFile << ", " << objectData.getFrameNumber() << ", " << position[0] << ", " << position[1] << ", " << position[2] << ", " << attitude[0] << ", " << attitude[1] << ", " << attitude[2];
-                        }
-                        m_LogFile << std::endl;
-
+                        const std::string filename = "test" + m_Config.getTestingSuffix() + "_" + std::to_string(m_TestImageIndex++) + ".png";
+                        m_LogFile << ", " << filename;
                         // Build path to test image and save
-                        const auto testImagePath = m_Config.getOutputPath() / ("test_" + std::to_string(m_TestImageIndex++) + ".png");
+                        const auto testImagePath = m_Config.getOutputPath() / filename;
                         cv::imwrite(testImagePath.str(), m_Unwrapped);
                     }
+                    
+                    m_LogFile << std::endl;
 
                     // If we should stream output
                     /*if(m_Config.shouldStreamOutput()) {
@@ -410,7 +440,7 @@ private:
                     }
                     // Otherwise drive forwards
                     else {
-                        m_Motor.tank(0.25f, 0.25f);
+                        m_Motor.tank(m_Config.getMoveSpeed(), m_Config.getMoveSpeed());
                     }
                 }
             }
@@ -454,8 +484,12 @@ private:
     // Motor driver
     Robots::Norbot m_Motor;
 
+    // Last time at which a snapshot was either tested or trained
     TimePoint m_LastTestTime;
     TimePoint m_LastTrainTime;
+    
+    // Time at which testing or training started
+    TimePoint m_RecordingStartTime;
 
     // Index of test image to write
     size_t m_TestImageIndex;
