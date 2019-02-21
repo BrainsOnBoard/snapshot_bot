@@ -59,45 +59,15 @@ public:
     RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
         m_Output(m_Camera->getOutputSize(), CV_8UC3), m_Unwrapped(config.getUnwrapRes(), CV_8UC3),
-        m_DifferenceImage(config.getUnwrapRes(), CV_8UC1), m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes())),/*
+        m_DifferenceImage(config.getUnwrapRes(), CV_8UC1), m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes())),
+        m_ImageInput(createImageInput(config)), m_Memory(createMemory(config, m_ImageInput->getOutputSize())), /*
         m_Server(config.getServerListenPort()), m_NetSink(m_Server, config.getUnwrapRes(), "unwrapped"),*/
         m_NumSnapshots(0)
     {
         // Create output directory (if necessary)
         filesystem::create_directory(m_Config.getOutputPath());
     
-        // Create image input
-        if(m_Config.shouldUseHorizonVector()) {
-            m_ImageInput.reset(new ImageInputHorizon(m_Config));
-        }
-        else if(m_Config.shouldUseBinaryImage()) {
-            m_ImageInput.reset(new ImageInputBinary(m_Config));
-        }
-        else {
-            m_ImageInput.reset(new ImageInputRaw(m_Config));
-        }
         
-        // Create appropriate type of memory
-        if(m_Config.shouldUseInfoMax()) {
-            if(m_Config.getMaxSnapshotRotateAngle() < 180_deg) {
-                std::cout << "Creating InfoMaxConstrained" << std::endl;
-                m_Memory.reset(new InfoMaxConstrained(m_Config, m_ImageInput->getOutputSize()));
-            }
-            else {
-                std::cout << "Creating InfoMax" << std::endl;
-                m_Memory.reset(new InfoMax(m_Config, m_ImageInput->getOutputSize()));
-            }
-        }
-        else {
-            if(m_Config.getMaxSnapshotRotateAngle() < 180_deg) {
-                std::cout << "Creating PerfectMemoryConstrained" << std::endl;
-                m_Memory.reset(new PerfectMemoryConstrained(m_Config, m_ImageInput->getOutputSize()));
-            }
-            else {
-                std::cout << "Creating PerfectMemory" << std::endl;
-                m_Memory.reset(new PerfectMemory(m_Config, m_ImageInput->getOutputSize()));
-            }
-        }
 
         // If we should stream output, run server thread
         /*if(m_Config.shouldStreamOutput()) {
@@ -475,11 +445,11 @@ private:
     // OpenCV-based panorama unwrapper
     ImgProc::OpenCVUnwrap360 m_Unwrapper;
 
-    // Perfect memory
-    std::unique_ptr<MemoryBase> m_Memory;
-
     // Image processor
     std::unique_ptr<ImageInput> m_ImageInput;
+    
+    // Perfect memory
+    std::unique_ptr<MemoryBase> m_Memory;
 
     // Motor driver
     Robots::Norbot m_Motor;

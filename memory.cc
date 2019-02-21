@@ -230,3 +230,28 @@ void InfoMaxConstrained::test(const cv::Mat &snapshot)
         }
     }
 }
+
+std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &inputSize)
+{
+    // Create appropriate type of memory
+    if(config.shouldUseInfoMax()) {
+        if(config.getMaxSnapshotRotateAngle() < 180_deg) {
+            std::cout << "Creating InfoMaxConstrained" << std::endl;
+            return std::unique_ptr<MemoryBase>(new InfoMaxConstrained(config, inputSize));
+        }
+        else {
+            std::cout << "Creating InfoMax" << std::endl;
+            return std::unique_ptr<MemoryBase>(new InfoMax(config, inputSize));
+        }
+    }
+    else {
+        if(config.getMaxSnapshotRotateAngle() < 180_deg) {
+            std::cout << "Creating PerfectMemoryConstrained" << std::endl;
+            return std::unique_ptr<MemoryBase>(new PerfectMemoryConstrained(config, inputSize));
+        }
+        else {
+            std::cout << "Creating PerfectMemory" << std::endl;
+            return std::unique_ptr<MemoryBase>(new PerfectMemory(config, inputSize));
+        }
+    }
+}
