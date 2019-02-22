@@ -114,7 +114,7 @@ public:
         }
         else {
             // If we're not using InfoMax or pre-trained weights don't exist
-            if(!m_Config.shouldUseInfoMax() || !(m_Config.getOutputPath() / "weights.bin").exists()) {
+            if(!m_Config.shouldUseInfoMax() || !(m_Config.getOutputPath() / ("weights" + config.getTestingSuffix() + ".bin")).exists()) {
                 std::cout << "Training on stored snapshots" << std::endl;
                 for(m_NumSnapshots = 0;;m_NumSnapshots++) {
                     const auto filename = getSnapshotPath(m_NumSnapshots);

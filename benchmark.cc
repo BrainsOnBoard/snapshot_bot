@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
     PerfectMemory *perfectMemory = dynamic_cast<PerfectMemory*>(memory.get());
     
     // If we're not using InfoMax or pre-trained weights don't exist
-    if(!config.shouldUseInfoMax() || !(dataPath  / config.getOutputPath() / "weights.bin").exists()) {
+    if(!config.shouldUseInfoMax() || !(dataPath  / config.getOutputPath() / ("weights" + config.getTestingSuffix() + ".bin")).exists()) {
         // Create reader to read filenames from training data
         io::CSVReader<1> trainingCSV((dataPath  / config.getOutputPath() / "training.csv").str());
         trainingCSV.read_header(io::ignore_extra_column, "Filename");
