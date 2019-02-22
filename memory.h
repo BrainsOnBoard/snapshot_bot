@@ -102,8 +102,12 @@ public:
     virtual void test(const cv::Mat &snapshot) override;
 
 private:
+    //------------------------------------------------------------------------
+    // Private API
+    //------------------------------------------------------------------------
     void updateBest(const std::vector<std::vector<float>> &differences, 
                     int colOffset, float &lowestDifference);
+    
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
@@ -155,10 +159,15 @@ public:
 
 private:
     //------------------------------------------------------------------------
+    // Private API
+    //------------------------------------------------------------------------
+    void updateBest(const std::vector<float> &differences, int colOffset);
+    
+    //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
-    const units::angle::degree_t m_FOV;
     const int m_ImageWidth;
+    const size_t m_NumScanColumns;
 };
 
 std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &inputSize);

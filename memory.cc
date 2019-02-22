@@ -86,7 +86,6 @@ PerfectMemoryConstrained::PerfectMemoryConstrained(const Config &config, const c
 :   PerfectMemory(config, inputSize), m_ImageWidth(inputSize.width),
     m_NumScanColumns((size_t)std::round(turn_t(config.getMaxSnapshotRotateAngle()).value() * (double)inputSize.width))
 {
-    std::cout << m_NumScanColumns << "(" << m_ImageWidth << ")" << std::endl;
 }
 //------------------------------------------------------------------------
 void PerfectMemoryConstrained::test(const cv::Mat &snapshot)
@@ -177,7 +176,7 @@ void InfoMax::saveWeights(const std::string &filename) const
 //-----------------------------------------------------------------------
 InfoMax::InfoMaxType InfoMax::createInfoMax(const Config &config, const cv::Size &inputSize)
 {
-    const filesystem::path weightPath = filesystem::path(config.getOutputPath()) / "weights.bin";
+    const filesystem::path weightPath = filesystem::path(config.getOutputPath()) / ("weights" + config.getTestingSuffix() + ".bin");
     if(weightPath.exists()) {
         std::cout << "\tLoading weights from " << weightPath << std::endl;
 
@@ -205,37 +204,42 @@ InfoMax::InfoMaxType InfoMax::createInfoMax(const Config &config, const cv::Size
 // InfoMaxConstrained
 //-----------------------------------------------------------------------
 InfoMaxConstrained::InfoMaxConstrained(const Config &config, const cv::Size &inputSize)
-:   InfoMax(config, inputSize), m_FOV(config.getMaxSnapshotRotateAngle()), m_ImageWidth(inputSize.width)
+:   InfoMax(config, inputSize), m_ImageWidth(inputSize.width),
+    m_NumScanColumns((size_t)std::round(turn_t(config.getMaxSnapshotRotateAngle()).value() * (double)inputSize.width))
 {
 }
 //-----------------------------------------------------------------------
 void InfoMaxConstrained::test(const cv::Mat &snapshot)
 {
-    // Get vector of differences from InfoMax
-    const auto &allDifferences = this->getInfoMax().getImageDifferences(snapshot);
-
-    // Loop through snapshots
-    // **NOTE** this currently uses a super-naive approach as more efficient solution is non-trivial because
-    // columns that represent the rotations are not necessarily contiguous - there is a dis-continuity in the middle
+    // Invalidate comparison variables
     this->setLowestDifference(std::numeric_limits<float>::max());
     this->setBestHeading(0_deg);
-    for(size_t i = 0; i < allDifferences.size(); i++) {
+    
+    // Update the best based on one scan left and one scan right
+    const auto &leftImageDifferences = getInfoMax().getImageDifferences(snapshot, 1, 0, m_NumScanColumns);
+    updateBest(leftImageDifferences, 0);
+    
+    const size_t rightScanStart = m_ImageWidth - m_NumScanColumns;
+    const auto &rightImageDifferences = getInfoMax().getImageDifferences(snapshot, 1, rightScanStart, m_ImageWidth);
+    updateBest(rightImageDifferences, rightScanStart);
+}
+//-----------------------------------------------------------------------
+void InfoMaxConstrained::updateBest(const std::vector<float> &differences, int colOffset)
+{
+    // Loop through columns
+    for(int c = 0; c < m_NumScanColumns; c++) {
         // If this snapshot is a better match than current best
-        if(allDifferences[i] < this->getLowestDifference()) {
+        if(differences[c] < getLowestDifference()) {
             // Convert column into pixel rotation
-            int pixelRotation = i;
+            int pixelRotation = c + colOffset;
             if(pixelRotation > (m_ImageWidth / 2)) {
                 pixelRotation -= m_ImageWidth;
             }
 
             // Convert this into angle
             const degree_t heading = turn_t((double)pixelRotation / (double)m_ImageWidth);
-
-            // If the distance between this angle from grid and route angle is within FOV, update best
-            if(fabs(heading) < m_FOV) {
-                this->setBestHeading(heading);
-                this->setLowestDifference(allDifferences[i]);
-            }
+            setBestHeading(heading);
+            setLowestDifference(differences[c]);
         }
     }
 }
