@@ -123,3 +123,17 @@ const cv::Mat &ImageInputHorizon::processSnapshot(const cv::Mat &snapshot)
     
     return m_HorizonVector;
 }
+
+std::unique_ptr<ImageInput> createImageInput(const Config &config)
+{
+    // Create image input
+    if(config.shouldUseHorizonVector()) {
+        return std::unique_ptr<ImageInput>(new ImageInputHorizon(config));
+    }
+    else if(config.shouldUseBinaryImage()) {
+        return std::unique_ptr<ImageInput>(new ImageInputBinary(config));
+    }
+    else {
+        return std::unique_ptr<ImageInput>(new ImageInputRaw(config));
+    }
+}

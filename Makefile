@@ -9,10 +9,13 @@ OFFLINE_TRAIN_SOURCES	:= offline_train.cc memory.cc image_input.cc
 OFFLINE_TRAIN_OBJECTS	:= $(OFFLINE_TRAIN_SOURCES:.cc=.o)
 OFFLINE_TRAIN_DEPS	:= $(OFFLINE_TRAIN_SOURCES:.cc=.d)
 
+BENCHMARK_SOURCES	:= benchmark.cc memory.cc image_input.cc
+BENCHMARK_OBJECTS	:= $(BENCHMARK_SOURCES:.cc=.o)
+BENCHMARK_DEPS		:= $(BENCHMARK_SOURCES:.cc=.d)
 
 .PHONY: all clean
 
-all: snapshot_bot computer offline_train
+all: snapshot_bot computer offline_train benchmark
 
 snapshot_bot: $(SNAPSHOT_BOT_OBJECTS)
 	$(CXX) -o $@ $(SNAPSHOT_BOT_OBJECTS) $(CXXFLAGS) $(LINK_FLAGS)
@@ -20,8 +23,13 @@ snapshot_bot: $(SNAPSHOT_BOT_OBJECTS)
 offline_train: $(OFFLINE_TRAIN_OBJECTS)
 	$(CXX) -o $@ $(OFFLINE_TRAIN_OBJECTS) $(CXXFLAGS) $(LINK_FLAGS)
 
--include $(OFFLINE_TRAIN_DEPS)
+benchmark: $(BENCHMARK_OBJECTS)
+	$(CXX) -o $@ $(BENCHMARK_OBJECTS) $(CXXFLAGS) $(LINK_FLAGS)
+
+
 -include $(SNAPSHOT_BOT_DEPS)
+-include $(OFFLINE_TRAIN_DEPS)
+-include $(BENCHMARK_DEPS)
 
 %.o: %.cc %.d
 	$(CXX) -c -o $@ $< $(CXXFLAGS)
@@ -34,4 +42,4 @@ computer: computer.cc computer.d
 %.d: ;
 
 clean:
-	rm -f offline_train computer snapshot_bot *.d *.o
+	rm -f offline_train computer snapshot_bot benchmark *.d *.o

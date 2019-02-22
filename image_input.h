@@ -123,6 +123,6 @@ private:
     // Vectors holding the sum and count of horizon heights in each image column
     std::vector<int> m_ColumnHorizonPixelsSum;
     std::vector<int> m_ColumnHorizonPixelsCount;
-    
-    
 };
+
+std::unique_ptr<ImageInput> createImageInput(const Config &config);

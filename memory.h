@@ -158,3 +158,5 @@ private:
     const units::angle::degree_t m_FOV;
     const int m_ImageWidth;
 };
+
+std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &inputSize);
