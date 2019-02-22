@@ -102,11 +102,13 @@ public:
     virtual void test(const cv::Mat &snapshot) override;
 
 private:
+    void updateBest(const std::vector<std::vector<float>> &differences, 
+                    int colOffset, float &lowestDifference);
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
-    const units::angle::degree_t m_FOV;
     const int m_ImageWidth;
+    const size_t m_NumScanColumns;
 };
 
 //------------------------------------------------------------------------

@@ -83,30 +83,44 @@ void PerfectMemory::writeCSVLine(std::ostream &os)
 // PerfectMemoryConstrained
 //------------------------------------------------------------------------
 PerfectMemoryConstrained::PerfectMemoryConstrained(const Config &config, const cv::Size &inputSize)
-:   PerfectMemory(config, inputSize), m_FOV(config.getMaxSnapshotRotateAngle()), m_ImageWidth(inputSize.width)
+:   PerfectMemory(config, inputSize), m_ImageWidth(inputSize.width),
+    m_NumScanColumns((size_t)std::round(turn_t(config.getMaxSnapshotRotateAngle()).value() * (double)inputSize.width))
 {
 }
 //------------------------------------------------------------------------
 void PerfectMemoryConstrained::test(const cv::Mat &snapshot)
 {
-    // Get 'matrix' of differences from perfect memory
-    const auto &allDifferences = getPM().getImageDifferences(snapshot);
-
-    // Loop through snapshots
-    // **NOTE** this currently uses a super-naive approach as more efficient solution is non-trivial because
-    // columns that represent the rotations are not necessarily contiguous - there is a dis-continuity in the middle
+    // Invalidate comparison variables
     float lowestDifference = std::numeric_limits<float>::max();
     setBestSnapshotIndex(std::numeric_limits<size_t>::max());
     setBestHeading(0.0_deg);
-    for(size_t i = 0; i < allDifferences.size(); i++) {
-        const auto &snapshotDifferences = allDifferences[i];
+    
+    // Update the best based on one scan left and one scan right
+    const size_t rightScanStart = m_ImageWidth - m_NumScanColumns;
+    updateBest(getPM().getImageDifferences(snapshot, 1, 0, m_NumScanColumns), 0, lowestDifference);
+    updateBest(getPM().getImageDifferences(snapshot, 1, rightScanStart, m_ImageWidth), rightScanStart, lowestDifference);
+   
+    // Check valid snapshot actually exists
+    assert(getBestSnapshotIndex() != std::numeric_limits<size_t>::max());
 
-        // Loop through acceptable range of columns
-        for(int c = 0; c < m_ImageWidth; c++) {
+    // Scale difference to match code in ridf_processors.h:57
+    setLowestDifference(lowestDifference / 255.0f);
+}
+//------------------------------------------------------------------------
+void PerfectMemoryConstrained::updateBest(const std::vector<std::vector<float>> &differences, 
+                                          int colOffset, float &lowestDifference)
+{
+    // Loop through differences (snapshots
+    for(size_t i = 0; i < differences.size(); i++) {
+        const auto &snapshotDifferences = differences[i];
+        BOB_ASSERT(snapshotDifferences.size() == m_NumScanColumns);
+        
+        // Loop through columns
+        for(int c = 0; c < snapshotDifferences.size(); c++) {
             // If this snapshot is a better match than current best
             if(snapshotDifferences[c] < lowestDifference) {
                 // Convert column into pixel rotation
-                int pixelRotation = c;
+                int pixelRotation = c + colOffset;
                 if(pixelRotation > (m_ImageWidth / 2)) {
                     pixelRotation -= m_ImageWidth;
                 }
@@ -114,21 +128,12 @@ void PerfectMemoryConstrained::test(const cv::Mat &snapshot)
                 // Convert this into angle
                 const degree_t heading = turn_t((double)pixelRotation / (double)m_ImageWidth);
 
-                // If the distance between this angle from grid and route angle is within FOV, update best
-                if(fabs(heading) < m_FOV) {
-                    setBestSnapshotIndex(i);
-                    setBestHeading(heading);
-                    lowestDifference = snapshotDifferences[c];
-                }
+                setBestSnapshotIndex(i);
+                setBestHeading(heading);
+                lowestDifference = snapshotDifferences[c];
             }
         }
-    }
-
-    // Check valid snapshot actually exists
-    assert(getBestSnapshotIndex() != std::numeric_limits<size_t>::max());
-
-    // Scale difference to match code in ridf_processors.h:57
-    setLowestDifference(lowestDifference / 255.0f);
+   }
 }
 
 //------------------------------------------------------------------------
