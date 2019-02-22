@@ -304,12 +304,12 @@ private:
     std::string m_ViconCaptureControlPath;
 };
 
-static void write(cv::FileStorage &fs, const std::string&, const Config &config)
+static inline void write(cv::FileStorage &fs, const std::string&, const Config &config)
 {
     config.write(fs);
 }
 
-static void read(const cv::FileNode &node, Config &x, const Config& defaultValue = Config())
+static inline void read(const cv::FileNode &node, Config &x, const Config& defaultValue = Config())
 {
     if(node.empty()) {
         x = defaultValue;
