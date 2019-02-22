@@ -86,6 +86,7 @@ PerfectMemoryConstrained::PerfectMemoryConstrained(const Config &config, const c
 :   PerfectMemory(config, inputSize), m_ImageWidth(inputSize.width),
     m_NumScanColumns((size_t)std::round(turn_t(config.getMaxSnapshotRotateAngle()).value() * (double)inputSize.width))
 {
+    std::cout << m_NumScanColumns << "(" << m_ImageWidth << ")" << std::endl;
 }
 //------------------------------------------------------------------------
 void PerfectMemoryConstrained::test(const cv::Mat &snapshot)
@@ -94,12 +95,15 @@ void PerfectMemoryConstrained::test(const cv::Mat &snapshot)
     float lowestDifference = std::numeric_limits<float>::max();
     setBestSnapshotIndex(std::numeric_limits<size_t>::max());
     setBestHeading(0.0_deg);
-    
+
     // Update the best based on one scan left and one scan right
+    const auto &leftImageDifferences = getPM().getImageDifferences(snapshot, 1, 0, m_NumScanColumns);
+    updateBest(leftImageDifferences, 0, lowestDifference);
+    
     const size_t rightScanStart = m_ImageWidth - m_NumScanColumns;
-    updateBest(getPM().getImageDifferences(snapshot, 1, 0, m_NumScanColumns), 0, lowestDifference);
-    updateBest(getPM().getImageDifferences(snapshot, 1, rightScanStart, m_ImageWidth), rightScanStart, lowestDifference);
-   
+    const auto &rightImageDifferences = getPM().getImageDifferences(snapshot, 1, rightScanStart, m_ImageWidth);
+    updateBest(rightImageDifferences, rightScanStart, lowestDifference);
+
     // Check valid snapshot actually exists
     assert(getBestSnapshotIndex() != std::numeric_limits<size_t>::max());
 
@@ -113,10 +117,9 @@ void PerfectMemoryConstrained::updateBest(const std::vector<std::vector<float>> 
     // Loop through differences (snapshots
     for(size_t i = 0; i < differences.size(); i++) {
         const auto &snapshotDifferences = differences[i];
-        BOB_ASSERT(snapshotDifferences.size() == m_NumScanColumns);
-        
+
         // Loop through columns
-        for(int c = 0; c < snapshotDifferences.size(); c++) {
+        for(int c = 0; c < m_NumScanColumns; c++) {
             // If this snapshot is a better match than current best
             if(snapshotDifferences[c] < lowestDifference) {
                 // Convert column into pixel rotation
@@ -177,7 +180,7 @@ InfoMax::InfoMaxType InfoMax::createInfoMax(const Config &config, const cv::Size
     const filesystem::path weightPath = filesystem::path(config.getOutputPath()) / "weights.bin";
     if(weightPath.exists()) {
         std::cout << "\tLoading weights from " << weightPath << std::endl;
-        
+
         std::ifstream is(weightPath.str(), std::ios::binary);
         if (!is.good()) {
             throw std::runtime_error("Could not open " + weightPath.str());
@@ -190,7 +193,7 @@ InfoMax::InfoMaxType InfoMax::createInfoMax(const Config &config, const cv::Size
         // Create data array and fill it
         InfoMaxWeightMatrixType weights(size[0], size[1]);
         is.read(reinterpret_cast<char*>(weights.data()), sizeof(float) * weights.size());
-        
+
         return InfoMaxType(inputSize, weights);
     }
     else {

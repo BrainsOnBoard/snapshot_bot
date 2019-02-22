@@ -59,31 +59,37 @@ int main(int argc, char *argv[])
     
     
     // Create reader to read headings and best matching snapshot from testing data
-    io::CSVReader<3> testingCSV((dataPath  / config.getOutputPath() / ("testing" + config.getTestingSuffix() + ".csv")).str());
-    testingCSV.read_header(io::ignore_extra_column, "Best heading [degrees]", "Best snapshot index", "Filename");
+    io::CSVReader<4> testingCSV((dataPath  / config.getOutputPath() / ("testing" + config.getTestingSuffix() + ".csv")).str());
+    testingCSV.read_header(io::ignore_extra_column, "Best heading [degrees]", "Lowest difference", "Best snapshot index", "Filename");
     
     std::string bestHeadingDegreesStr;
+    float lowestDifference;
     size_t bestSnapshotIndex;
     std::string filename;
     double totalTestTime = 0.0;
     size_t numTestingImages = 0;
-    while(testingCSV.read_row(bestHeadingDegreesStr, bestSnapshotIndex, filename)) {
+    while(testingCSV.read_row(bestHeadingDegreesStr, lowestDifference, bestSnapshotIndex, filename)) {
         BoBRobotics::TimerAccumulate<> t(totalTestTime);
         
         std::cout << "." << std::flush;
         memory->test(imageInput->processSnapshot(cv::imread((dataPath / config.getOutputPath() / filename).str())));
         numTestingImages++;
-        
-        const double bestHeadingDegrees = std::stod(bestHeadingDegreesStr.substr(0, bestHeadingDegreesStr.size() - 4));
-        
-        if(fabs(bestHeadingDegrees - perfectMemory->getBestHeading().value()) > 0.01) {
-            std::cerr << "BEST HEADING ERROR:" << bestHeadingDegrees << " vs " << perfectMemory->getBestHeading().value() << std::endl;
-            break;
-        }
-        
-        if(perfectMemory && perfectMemory->getBestSnapshotIndex() != bestSnapshotIndex) {
-            std::cerr << "BEST SNAPSHOT ERROR" << std::endl;
-            break;
+
+        // If the lowest differences don't match
+        if(fabs(perfectMemory->getLowestDifference() - lowestDifference) > 0.01) {
+            const double bestHeadingDegrees = std::stod(bestHeadingDegreesStr.substr(0, bestHeadingDegreesStr.size() - 4));
+            
+            // If headings don't match
+            if(fabs(bestHeadingDegrees - perfectMemory->getBestHeading().value()) > 0.01) {
+                std::cerr << "BEST HEADING ERROR (" << bestHeadingDegrees << " rather than " << perfectMemory->getBestHeading().value() << ")" << std::endl;
+               break;
+            }
+            
+            // If snapshot doesn't mathc
+            if(perfectMemory && perfectMemory->getBestSnapshotIndex() != bestSnapshotIndex) {
+                std::cerr << "BEST SNAPSHOT ERROR (" << bestSnapshotIndex << " rather than " << perfectMemory->getBestSnapshotIndex() << ")" << std::endl;
+                break;
+            }
         }
     }
     std::cout << std::endl;
