@@ -23,7 +23,7 @@ class Config
 public:
     Config() : m_UseHOG(false), m_UseBinaryImage(false), m_UseHorizonVector(false), m_Train(true), m_UseInfoMax(false), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
         m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
-        m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TestInterval(300.0), m_TrainInterval(100.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort), m_MoveSpeed(0.25),
+        m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TrainInterval(100.0), m_MotorCommandInterval(500.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort), m_MoveSpeed(0.25),
         m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
     {
@@ -58,8 +58,8 @@ public:
     float getJoystickDeadzone() const{ return m_JoystickDeadzone; }
 
     bool shouldAutoTrain() const{ return m_AutoTrain; }
-    Milliseconds getTestInterval() const{ return m_TestInterval; }
     Milliseconds getTrainInterval() const{ return m_TrainInterval; }
+    Milliseconds getMotorCommandInterval() const{ return m_MotorCommandInterval; }
     
     bool shouldUseViconTracking() const{ return m_UseViconTracking; }
     int getViconTrackingPort() const{ return m_ViconTrackingPort; }
@@ -112,8 +112,8 @@ public:
         fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
         fs << "joystickDeadzone" << getJoystickDeadzone();
         fs << "autoTrain" << shouldAutoTrain();
-        fs << "testInterval" << getTestInterval().count();
         fs << "trainInterval" << getTrainInterval().count();
+        fs << "motorCommandInterval" << getMotorCommandInterval().count();
         fs << "serverListenPort" << getServerListenPort();
         fs << "moveSpeed" << getMoveSpeed();
         fs << "turnThresholds" << "[";
@@ -182,13 +182,13 @@ public:
         cv::read(node["autoTrain"], m_AutoTrain, m_AutoTrain);
         cv::read(node["moveSpeed"], m_MoveSpeed, m_MoveSpeed);
         
-        double testInterval;
-        cv::read(node["testInterval"], testInterval, m_TestInterval.count());
-        m_TestInterval = (Milliseconds)testInterval;
-        
         double trainInterval;
         cv::read(node["trainInterval"], trainInterval, m_TrainInterval.count());
         m_TrainInterval = (Milliseconds)trainInterval;
+        
+        double motorCommandInterval;
+        cv::read(node["motorCommandInterval"], motorCommandInterval, m_MotorCommandInterval.count());
+        m_MotorCommandInterval = (Milliseconds)motorCommandInterval;
         
         if(node["turnThresholds"].isSeq()) {
             m_TurnThresholds.clear();
@@ -279,8 +279,8 @@ private:
     bool m_AutoTrain;
     
     // How many milliseconds do we move for before re-calculating IDF?
-    Milliseconds m_TestInterval;
     Milliseconds m_TrainInterval;
+    Milliseconds m_MotorCommandInterval;
     
     // Listen port used for streaming etc
     int m_ServerListenPort;

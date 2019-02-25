@@ -54,13 +54,15 @@ class RobotFSM : FSM<State>::StateHandler
 {
     using TimePoint = std::chrono::high_resolution_clock::time_point;
     using Seconds = std::chrono::duration<double, std::ratio<1>>;
+    using Milliseconds = std::chrono::duration<double, std::milli>;
     
 public:
     RobotFSM(const Config &config)
     :   m_Config(config), m_StateMachine(this, State::Invalid), m_Camera(Video::getPanoramicCamera()),
         m_Output(m_Camera->getOutputSize(), CV_8UC3), m_Unwrapped(config.getUnwrapRes(), CV_8UC3),
         m_DifferenceImage(config.getUnwrapRes(), CV_8UC1), m_Unwrapper(m_Camera->createUnwrapper(config.getUnwrapRes())),
-        m_ImageInput(createImageInput(config)), m_Memory(createMemory(config, m_ImageInput->getOutputSize())), /*
+        m_ImageInput(createImageInput(config)), m_Memory(createMemory(config, m_ImageInput->getOutputSize())), 
+        m_TestDuration(450.0),/*
         m_Server(config.getServerListenPort()), m_NetSink(m_Server, config.getUnwrapRes(), "unwrapped"),*/
         m_NumSnapshots(0)
     {
@@ -329,7 +331,7 @@ private:
                 
 
                 // Reset test time and test image
-                m_LastTestTime = m_RecordingStartTime = std::chrono::high_resolution_clock::now();
+                m_LastMotorCommandTime = m_RecordingStartTime = std::chrono::high_resolution_clock::now();
                 m_TestImageIndex = 0;
 
                 // Delete old testing images
@@ -340,13 +342,10 @@ private:
                 const auto currentTime = std::chrono::high_resolution_clock::now();
                 
                 // If it's time to move
-                if((currentTime - m_LastTestTime) > m_Config.getTestInterval()) {
-                    // Reset move time
-                    m_LastTestTime = currentTime;
-
+                if((currentTime - (m_LastMotorCommandTime + m_TestDuration)) > m_Config.getMotorCommandInterval()) {
                     // Find matching snapshot
                     m_Memory->test(m_ImageInput->processSnapshot(m_Unwrapped));
-                
+
                     // Write time
                     m_LogFile << ((Seconds)(currentTime - m_RecordingStartTime)).count() << ", ";
                     
@@ -399,7 +398,18 @@ private:
                             std::cout << "WARNING: Can only stream output from a perfect memory" << std::endl;
                         }
                     }*/
-
+                    // Get time after testing and thus calculate how long it took
+                    const auto motorTime = std::chrono::high_resolution_clock::now();
+                    m_TestDuration = motorTime - currentTime;
+                    
+                    // If test duration is longer than motor command interval, this schedule cannot be maintained so give a warning
+                    if(m_TestDuration > m_Config.getMotorCommandInterval()) {
+                        std::cerr << "WARNING: last test took " << m_TestDuration.count() << "ms - this is longer than desired motor command interval (" << m_Config.getMotorCommandInterval().count() << "ms)" << std::endl;
+                    }
+                    
+                    // Reset move time
+                    m_LastMotorCommandTime = motorTime;
+                    
                     // Determine how fast we should turn based on the absolute angle
                     auto turnSpeed = m_Config.getTurnSpeed(m_Memory->getBestHeading());
                     
@@ -454,12 +464,14 @@ private:
     // Motor driver
     Robots::Norbot m_Motor;
 
-    // Last time at which a snapshot was either tested or trained
-    TimePoint m_LastTestTime;
+    // Last time at which a motor command was issued or a snapshot was trained
+    TimePoint m_LastMotorCommandTime;
     TimePoint m_LastTrainTime;
     
     // Time at which testing or training started
     TimePoint m_RecordingStartTime;
+    
+    Milliseconds m_TestDuration;
 
     // Index of test image to write
     size_t m_TestImageIndex;
