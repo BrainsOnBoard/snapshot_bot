@@ -51,7 +51,7 @@ int main(int argc, char **argv)
 
         const cv::Size videoSize = video.getOutputSize();
         
-        cv::namedWindow("Output", CV_WINDOW_NORMAL);
+        cv::namedWindow("Output", cv::WINDOW_NORMAL);
         cv::resizeWindow("Output", videoSize.width * 5, videoSize.height * 5);
         
         // poll joystick and video stream repeatedly

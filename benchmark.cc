@@ -38,7 +38,7 @@ int main(int argc, char *argv[])
     size_t numTrainingImages = 0;
     double totalTrainTime = 0.0;
     for(size_t r = 0; r < 1000; r++) {
-        for(size_t i = 0; i < 10; i++) {
+        for(unsigned int i = 0; i < 10; i++) {
             char filename[255];
             sprintf(filename, "benchmark_10/snapshot_%u.png", i);
             const cv::Mat &image = cv::imread(filename);
