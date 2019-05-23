@@ -30,7 +30,7 @@ int main(int argc, char **argv)
         robotIP = argv[1];
     } else {
         // get robot IP from terminal
-        std::cout << "Robot IP [127.0.0.1]: ";
+        LOGI << "Robot IP [127.0.0.1]: ";
         std::getline(std::cin, robotIP);
         if (robotIP.empty()) {
             robotIP = "127.0.0.1";

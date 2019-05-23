@@ -1,6 +1,9 @@
 #define NO_HEADER_DEFINITIONS
 #include "image_input.h"
 
+// BoB robotics includes
+#include "common/logging.h"
+
 // Snapshot bot includes
 #include "config.h"
 
@@ -41,14 +44,14 @@ ImageInputBinary::ImageInputBinary(const Config &config)
     // **NOTE** will read 8-bit per channel grayscale
     m_MarkerImage = cv::imread(config.getWatershedMarkerImageFilename(), cv::IMREAD_GRAYSCALE);
     BOB_ASSERT(m_MarkerImage.size() == config.getUnwrapRes());
-    
+
     // Convert marker image to 32-bit per channel without performing any scaling
     m_MarkerImage.convertTo(m_MarkerImage, CV_32SC1);
-    
+
     // Find minimum and maximum elements
     m_MinIndex = *std::min_element(m_MarkerImage.begin<int32_t>(), m_MarkerImage.end<int32_t>());
     m_MaxIndex = *std::max_element(m_MarkerImage.begin<int32_t>(), m_MarkerImage.end<int32_t>());
-    
+
     // Check that there are indeed 3 markers as expected
     BOB_ASSERT(m_MinIndex == 0);
     BOB_ASSERT(m_MaxIndex == 2);
@@ -58,7 +61,7 @@ const cv::Mat &ImageInputBinary::processSnapshot(const cv::Mat &snapshot)
 {
     // Read indices of segments
     const cv::Mat segmentedIndices = readSegmentIndices(snapshot);
-    
+
     // Convert to greyscale image
     // **NOTE** segmentedIndices should contain -1, 1 and 2 - this rescales to black, white and grey
     segmentedIndices.convertTo(m_SegmentedImage, CV_8UC1, 85.0, 85.0);
@@ -70,10 +73,10 @@ cv::Mat ImageInputBinary::readSegmentIndices(const cv::Mat &snapshot)
 {
     // Make a copy of marker image to perform segmentation on
     m_MarkerImage.copyTo(m_SegmentIndices);
-    
+
     // Segment!
     cv::watershed(snapshot, m_SegmentIndices);
-    
+
     // For some reason watershed thresholding results in a border around image so return ROI inside this
     // **NOTE** we don't use getOutputSize() here as it may be overriden in derived classes
     return cv::Mat(m_SegmentIndices, cv::Rect(1, 1, getInputSize().width - 2, getInputSize().height - 2));
@@ -101,26 +104,26 @@ const cv::Mat &ImageInputHorizon::processSnapshot(const cv::Mat &snapshot)
     m_ColumnHorizonPixelsCount.assign(numColumns, 0);
     BOB_ASSERT(m_ColumnHorizonPixelsSum.size() == (size_t)numColumns);
     BOB_ASSERT(m_ColumnHorizonPixelsCount.size() == (size_t)numColumns);
-    
+
     // Loop through image columns
     for(auto p = segmentedIndices.begin<int32_t>(); p != segmentedIndices.end<int32_t>(); p++) {
         // If this is a horizon pixel
         if(*p == -1) {
             // Increment number of pixels per column
             m_ColumnHorizonPixelsCount[p.pos().x]++;
-            
+
             // Add to total in horizon
             m_ColumnHorizonPixelsSum[p.pos().x] += p.pos().y;
         }
     }
-    
+
     // Populate horizon vector with average horizon height
     std::transform(m_ColumnHorizonPixelsSum.cbegin(), m_ColumnHorizonPixelsSum.cend(), m_ColumnHorizonPixelsCount.cbegin(), m_HorizonVector.begin<uint8_t>(),
                    [](int sum, int count)
                    {
                        return (uint8_t)(sum / count);
                    });
-    
+
     return m_HorizonVector;
 }
 
@@ -128,15 +131,15 @@ std::unique_ptr<ImageInput> createImageInput(const Config &config)
 {
     // Create image input
     if(config.shouldUseHorizonVector()) {
-        std::cout << "Creating ImageInputHorizon" << std::endl;
+        LOGI << "Creating ImageInputHorizon";
         return std::unique_ptr<ImageInput>(new ImageInputHorizon(config));
     }
     else if(config.shouldUseBinaryImage()) {
-        std::cout << "Creating ImageInputBinary" << std::endl;
+        LOGI << "Creating ImageInputBinary";
         return std::unique_ptr<ImageInput>(new ImageInputBinary(config));
     }
     else {
-        std::cout << "Creating ImageInputRaw" << std::endl;
+        LOGI << "Creating ImageInputRaw";
         return std::unique_ptr<ImageInput>(new ImageInputRaw(config));
     }
 }

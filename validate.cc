@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
         io::CSVReader<1> trainingCSV((dataPath  / config.getOutputPath() / "training.csv").str());
         trainingCSV.read_header(io::ignore_extra_column, "Filename");
         
-        std::cout << "Training" << std::endl;
+        LOGI << "Training" ;
         std::string filename;
         double totalTrainTime = 0.0;
         size_t numTrainingImages = 0;
@@ -52,17 +52,16 @@ int main(int argc, char *argv[])
             memory->train(imageInput->processSnapshot(cv::imread((dataPath / filename).str())));
             numTrainingImages++;
         }
-        std::cout << std::endl;
-        
-        std::cout << "\tTotal time:" << totalTrainTime << "ms" << std::endl;
-        std::cout << "\tTime per image:" << totalTrainTime / (double)numTrainingImages << "ms" << std::endl;
+
+        LOGI << "\tTotal time:" << totalTrainTime << "ms" ;
+        LOGI << "\tTime per image:" << totalTrainTime / (double)numTrainingImages << "ms" ;
     }
 
     // Create reader to read headings and best matching snapshot from testing data
     io::CSVReader<4> testingCSV((dataPath  / config.getOutputPath() / ("testing" + config.getTestingSuffix() + ".csv")).str());
     testingCSV.read_header(io::ignore_extra_column, "Best heading [degrees]", "Lowest difference", "Best snapshot index", "Filename");
-    
-    std::cout << "Testing" << std::endl;
+
+    LOGI << "Testing" ;
     std::string bestHeadingDegreesStr;
     float lowestDifference;
     size_t bestSnapshotIndex;
@@ -71,7 +70,7 @@ int main(int argc, char *argv[])
     size_t numTestingImages = 0;
     while(testingCSV.read_row(bestHeadingDegreesStr, lowestDifference, bestSnapshotIndex, filename)) {
         BoBRobotics::TimerAccumulate<> t(totalTestTime);
-        
+
         std::cout << "." << std::flush;
         memory->test(imageInput->processSnapshot(cv::imread((dataPath / config.getOutputPath() / filename).str())));
         numTestingImages++;
@@ -79,23 +78,23 @@ int main(int argc, char *argv[])
         // If we're validating and the lowest differences don't match
         if(validate && fabs(memory->getLowestDifference() - lowestDifference) > 0.01) {
             const double bestHeadingDegrees = std::stod(bestHeadingDegreesStr.substr(0, bestHeadingDegreesStr.size() - 4));
-            
+
             // If headings don't match
             if(fabs(bestHeadingDegrees - memory->getBestHeading().value()) > 0.01) {
-                std::cerr << "BEST HEADING ERROR (" << bestHeadingDegrees << " rather than " << memory->getBestHeading().value() << ")" << std::endl;
+                LOGE << "BEST HEADING ERROR (" << bestHeadingDegrees << " rather than " << memory->getBestHeading().value() << ")";
                break;
             }
-            
+
             // If snapshot doesn't mathc
             if(perfectMemory && perfectMemory->getBestSnapshotIndex() != bestSnapshotIndex) {
-                std::cerr << "BEST SNAPSHOT ERROR (" << bestSnapshotIndex << " rather than " << perfectMemory->getBestSnapshotIndex() << ")" << std::endl;
+                LOGE << "BEST SNAPSHOT ERROR (" << bestSnapshotIndex << " rather than " << perfectMemory->getBestSnapshotIndex() << ")";
                 break;
             }
         }
     }
-    std::cout << std::endl;
-    std::cout << "\tTotal time:" << totalTestTime << "ms" << std::endl;
-    std::cout << "\tTime per image:" << totalTestTime / (double)numTestingImages << "ms" << std::endl;
+
+    LOGI << "\tTotal time:" << totalTestTime << "ms" ;
+    LOGI << "\tTime per image:" << totalTestTime / (double)numTestingImages << "ms" ;
     
     return EXIT_SUCCESS;
 }

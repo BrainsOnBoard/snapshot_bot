@@ -4,7 +4,10 @@
 // Standard C++ includes
 #include <fstream>
 
-// BoB robotics third party include
+// BoB robotics includes
+#include "common/logging.h"
+
+// BoB robotics third party includes
 #include "third_party/path.h"
 
 // Snapshot bot includes
@@ -117,7 +120,7 @@ InfoMax::InfoMax(const Config &config, const cv::Size &inputSize)
 :   m_InfoMax(createInfoMax(config, inputSize))
 {
     BOB_ASSERT(config.getMaskImageFilename().empty());
-    std::cout << "\tUsing " << Eigen::nbThreads() << " threads" << std::endl;
+    LOGI << "\tUsing " << Eigen::nbThreads() << " threads";
 }
 //------------------------------------------------------------------------
 void InfoMax::test(const cv::Mat &snapshot)
@@ -150,7 +153,7 @@ InfoMax::InfoMaxType InfoMax::createInfoMax(const Config &config, const cv::Size
 {
     const filesystem::path weightPath = filesystem::path(config.getOutputPath()) / ("weights" + config.getTestingSuffix() + ".bin");
     if(weightPath.exists()) {
-        std::cout << "\tLoading weights from " << weightPath << std::endl;
+        LOGI << "\tLoading weights from " << weightPath;
 
         std::ifstream is(weightPath.str(), std::ios::binary);
         if (!is.good()) {
@@ -205,21 +208,21 @@ std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &i
     // Create appropriate type of memory
     if(config.shouldUseInfoMax()) {
         if(config.getMaxSnapshotRotateAngle() < 180_deg) {
-            std::cout << "Creating InfoMaxConstrained" << std::endl;
+            LOGI << "Creating InfoMaxConstrained";
             return std::unique_ptr<MemoryBase>(new InfoMaxConstrained(config, inputSize));
         }
         else {
-            std::cout << "Creating InfoMax" << std::endl;
+            LOGI << "Creating InfoMax";
             return std::unique_ptr<MemoryBase>(new InfoMax(config, inputSize));
         }
     }
     else {
         if(config.getMaxSnapshotRotateAngle() < 180_deg) {
-            std::cout << "Creating PerfectMemoryConstrained" << std::endl;
+            LOGI << "Creating PerfectMemoryConstrained";
             return std::unique_ptr<MemoryBase>(new PerfectMemoryConstrained(config, inputSize));
         }
         else {
-            std::cout << "Creating PerfectMemory" << std::endl;
+            LOGI << "Creating PerfectMemory";
             return std::unique_ptr<MemoryBase>(new PerfectMemory(config, inputSize));
         }
     }
