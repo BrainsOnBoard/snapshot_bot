@@ -209,21 +209,21 @@ std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &i
     if(config.shouldUseInfoMax()) {
         if(config.getMaxSnapshotRotateAngle() < 180_deg) {
             LOGI << "Creating InfoMaxConstrained";
-            return std::unique_ptr<MemoryBase>(new InfoMaxConstrained(config, inputSize));
+            return std::make_unique<InfoMaxConstrained>(config, inputSize);
         }
         else {
             LOGI << "Creating InfoMax";
-            return std::unique_ptr<MemoryBase>(new InfoMax(config, inputSize));
+            return std::make_unique<InfoMax>(config, inputSize);
         }
     }
     else {
         if(config.getMaxSnapshotRotateAngle() < 180_deg) {
             LOGI << "Creating PerfectMemoryConstrained";
-            return std::unique_ptr<MemoryBase>(new PerfectMemoryConstrained(config, inputSize));
+            return std::make_unique<PerfectMemoryConstrained>(config, inputSize);
         }
         else {
             LOGI << "Creating PerfectMemory";
-            return std::unique_ptr<MemoryBase>(new PerfectMemory(config, inputSize));
+            return std::make_unique<PerfectMemory>(config, inputSize);
         }
     }
 }

@@ -132,14 +132,14 @@ std::unique_ptr<ImageInput> createImageInput(const Config &config)
     // Create image input
     if(config.shouldUseHorizonVector()) {
         LOGI << "Creating ImageInputHorizon";
-        return std::unique_ptr<ImageInput>(new ImageInputHorizon(config));
+        return std::make_unique<ImageInputHorizon>(config);
     }
     else if(config.shouldUseBinaryImage()) {
         LOGI << "Creating ImageInputBinary";
-        return std::unique_ptr<ImageInput>(new ImageInputBinary(config));
+        return std::make_unique<ImageInputBinary>(config);
     }
     else {
         LOGI << "Creating ImageInputRaw";
-        return std::unique_ptr<ImageInput>(new ImageInputRaw(config));
+        return std::make_unique<ImageInputRaw>(config);
     }
 }
