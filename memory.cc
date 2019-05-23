@@ -90,52 +90,24 @@ PerfectMemoryConstrained::PerfectMemoryConstrained(const Config &config, const c
 //------------------------------------------------------------------------
 void PerfectMemoryConstrained::test(const cv::Mat &snapshot)
 {
-    // Invalidate comparison variables
-    float lowestDifference = std::numeric_limits<float>::max();
-    setBestSnapshotIndex(std::numeric_limits<size_t>::max());
-    setBestHeading(0.0_deg);
+    // Get best heading from left side of scan
+    degree_t leftBestHeading;
+    float leftLowestDifference;
+    size_t leftBestSnapshot;
+    std::tie(leftBestHeading, leftBestSnapshot, leftLowestDifference, std::ignore) = getPM().getHeading(
+        snapshot, 1, 0, m_NumScanColumns);
 
-    // Update the best based on one scan left and one scan right
-    const auto &leftImageDifferences = getPM().getImageDifferences(snapshot, 1, 0, m_NumScanColumns);
-    updateBest(leftImageDifferences, 0, lowestDifference);
-    
-    const size_t rightScanStart = m_ImageWidth - m_NumScanColumns;
-    const auto &rightImageDifferences = getPM().getImageDifferences(snapshot, 1, rightScanStart, m_ImageWidth);
-    updateBest(rightImageDifferences, rightScanStart, lowestDifference);
+    // Get best heading from right side of scan
+    degree_t rightBestHeading;
+    float rightLowestDifference;
+    size_t rightBestSnapshot;
+    std::tie(rightBestHeading, rightBestSnapshot, rightLowestDifference, std::ignore) = getPM().getHeading(
+        snapshot, 1, m_ImageWidth - m_NumScanColumns, m_ImageWidth);
 
-    // Check valid snapshot actually exists
-    assert(getBestSnapshotIndex() != std::numeric_limits<size_t>::max());
-
-    // Scale difference to match code in ridf_processors.h:57
-    setLowestDifference(lowestDifference / 255.0f);
-}
-//------------------------------------------------------------------------
-void PerfectMemoryConstrained::updateBest(const std::vector<std::vector<float>> &differences, 
-                                          int colOffset, float &lowestDifference)
-{
-    // Loop through differences (snapshots
-    for(size_t i = 0; i < differences.size(); i++) {
-        const auto &snapshotDifferences = differences[i];
-
-        // Loop through columns
-        for(int c = 0; c < m_NumScanColumns; c++) {
-            // If this snapshot is a better match than current best
-            if(snapshotDifferences[c] < lowestDifference) {
-                // Convert column into pixel rotation
-                int pixelRotation = c + colOffset;
-                if(pixelRotation > (m_ImageWidth / 2)) {
-                    pixelRotation -= m_ImageWidth;
-                }
-
-                // Convert this into angle
-                const degree_t heading = turn_t((double)pixelRotation / (double)m_ImageWidth);
-
-                setBestSnapshotIndex(i);
-                setBestHeading(heading);
-                lowestDifference = snapshotDifferences[c];
-            }
-        }
-   }
+    // Get lowest difference and best heading from across scans
+    setLowestDifference(std::min(leftLowestDifference, rightLowestDifference) / 255.0f);
+    setBestHeading((leftLowestDifference < rightLowestDifference) ? leftBestHeading : rightBestHeading);
+    setBestSnapshotIndex((leftLowestDifference < rightLowestDifference) ? leftBestSnapshot : rightBestSnapshot);
 }
 
 //------------------------------------------------------------------------
@@ -211,37 +183,21 @@ InfoMaxConstrained::InfoMaxConstrained(const Config &config, const cv::Size &inp
 //-----------------------------------------------------------------------
 void InfoMaxConstrained::test(const cv::Mat &snapshot)
 {
-    // Invalidate comparison variables
-    this->setLowestDifference(std::numeric_limits<float>::max());
-    this->setBestHeading(0_deg);
-    
-    // Update the best based on one scan left and one scan right
-    const auto &leftImageDifferences = getInfoMax().getImageDifferences(snapshot, 1, 0, m_NumScanColumns);
-    updateBest(leftImageDifferences, 0);
-    
-    const size_t rightScanStart = m_ImageWidth - m_NumScanColumns;
-    const auto &rightImageDifferences = getInfoMax().getImageDifferences(snapshot, 1, rightScanStart, m_ImageWidth);
-    updateBest(rightImageDifferences, rightScanStart);
-}
-//-----------------------------------------------------------------------
-void InfoMaxConstrained::updateBest(const std::vector<float> &differences, int colOffset)
-{
-    // Loop through columns
-    for(int c = 0; c < m_NumScanColumns; c++) {
-        // If this snapshot is a better match than current best
-        if(differences[c] < getLowestDifference()) {
-            // Convert column into pixel rotation
-            int pixelRotation = c + colOffset;
-            if(pixelRotation > (m_ImageWidth / 2)) {
-                pixelRotation -= m_ImageWidth;
-            }
+    // Get best heading from left side of scan
+    degree_t leftBestHeading;
+    float leftLowestDifference;
+    std::tie(leftBestHeading, leftLowestDifference, std::ignore) = getInfoMax().getHeading(
+        snapshot, 1, 0, m_NumScanColumns);
 
-            // Convert this into angle
-            const degree_t heading = turn_t((double)pixelRotation / (double)m_ImageWidth);
-            setBestHeading(heading);
-            setLowestDifference(differences[c]);
-        }
-    }
+    // Get best heading from right side of scan
+    degree_t rightBestHeading;
+    float rightLowestDifference;
+    std::tie(rightBestHeading, rightLowestDifference, std::ignore) = getInfoMax().getHeading(
+        snapshot, 1, m_ImageWidth - m_NumScanColumns, m_ImageWidth);
+
+    // Get lowest difference and best heading from across scans
+    setLowestDifference(std::min(leftLowestDifference, rightLowestDifference));
+    setBestHeading((leftLowestDifference < rightLowestDifference) ? leftBestHeading : rightBestHeading);
 }
 
 std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &inputSize)
