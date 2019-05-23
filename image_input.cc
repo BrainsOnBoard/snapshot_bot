@@ -49,8 +49,9 @@ ImageInputBinary::ImageInputBinary(const Config &config)
     m_MarkerImage.convertTo(m_MarkerImage, CV_32SC1);
 
     // Find minimum and maximum elements
-    m_MinIndex = *std::min_element(m_MarkerImage.begin<int32_t>(), m_MarkerImage.end<int32_t>());
-    m_MaxIndex = *std::max_element(m_MarkerImage.begin<int32_t>(), m_MarkerImage.end<int32_t>());
+    const auto minMaxIter = std::minmax_element(m_MarkerImage.begin<int32_t>(), m_MarkerImage.end<int32_t>());
+    m_MinIndex = *minMaxIter.first;
+    m_MaxIndex = *minMaxIter.second;
 
     // Check that there are indeed 3 markers as expected
     BOB_ASSERT(m_MinIndex == 0);
