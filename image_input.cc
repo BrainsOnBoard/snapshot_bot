@@ -91,7 +91,7 @@ ImageInputHorizon::ImageInputHorizon(const Config &config)
     m_ColumnHorizonPixelsSum(config.getUnwrapRes().width - 2), m_ColumnHorizonPixelsCount(config.getUnwrapRes().width - 2)
 {
     // Check image will be representable as 8-bit value
-    BOB_ASSERT(config.getUnwrapRes().height < 0xFF);
+    BOB_ASSERT(config.getUnwrapRes().height <= 0xFF);
 }
 //----------------------------------------------------------------------------
 const cv::Mat &ImageInputHorizon::processSnapshot(const cv::Mat &snapshot)
