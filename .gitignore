@@ -1,0 +1,15 @@
+# Intermediate files
+*.d
+*.o
+
+# Executables
+benchmark
+computer
+generator
+offline_train
+snapshot_bot
+validate
+
+# GeNN output
+mb_memory_ardin_CODE
+mb_memory_hog_CODE
