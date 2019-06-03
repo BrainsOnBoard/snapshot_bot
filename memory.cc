@@ -251,6 +251,10 @@ std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &i
             return std::make_unique<InfoMax>(config, inputSize);
         }
     }
+    else if(config.shouldUseMBArdin()) {
+        LOGI << "Creating MBArdinConstrained";
+        return std::make_unique<MBArdinConstrained>(config, inputSize);
+    }
     else {
         if(config.getMaxSnapshotRotateAngle() < 180_deg) {
             LOGI << "Creating PerfectMemoryConstrained";

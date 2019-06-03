@@ -21,8 +21,8 @@ class Config
     using Milliseconds = std::chrono::duration<double, std::milli>;
     
 public:
-    Config() : m_UseHOG(false), m_UseBinaryImage(false), m_UseTrueBinaryImage(false), m_UseHorizonVector(false), m_Train(true), m_UseInfoMax(false), m_SaveTestingDiagnostic(false), m_StreamOutput(false),
-        m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
+    Config() : m_UseHOG(false), m_UseBinaryImage(false), m_UseTrueBinaryImage(false), m_UseHorizonVector(false), m_Train(true), m_UseInfoMax(false), m_UseMBArdin(false), m_UseMBHOG(false),
+        m_SaveTestingDiagnostic(false), m_StreamOutput(false), m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
         m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TrainInterval(100.0), m_MotorCommandInterval(500.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort), m_MoveSpeed(0.25),
         m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
@@ -38,6 +38,8 @@ public:
     bool shouldUseHorizonVector() const{ return m_UseHorizonVector; }
     bool shouldTrain() const{ return m_Train; }
     bool shouldUseInfoMax() const{ return m_UseInfoMax; }
+    bool shouldUseMBArdin() const{ return m_UseMBArdin; }
+    bool shouldUseMBHOG() const{ return m_UseMBHOG; }
     bool shouldSaveTestingDiagnostic() const{ return m_SaveTestingDiagnostic; }
     bool shouldStreamOutput() const{ return m_StreamOutput; }
 
@@ -102,6 +104,8 @@ public:
         fs << "shouldUseHorizonVector" << shouldUseHorizonVector();
         fs << "shouldTrain" << shouldTrain();
         fs << "shouldUseInfoMax" << shouldUseInfoMax();
+        fs << "shouldUseMBArdin" << shouldUseMBArdin();
+        fs << "shouldUseMBHOG" << shouldUseMBHOG();
         fs << "shouldSaveTestingDiagnostic" << shouldSaveTestingDiagnostic();
         fs << "shouldStreamOutput" << shouldStreamOutput();
         fs << "outputPath" << getOutputPath().str();
@@ -152,6 +156,8 @@ public:
         cv::read(node["shouldUseHorizonVector"], m_UseHorizonVector, m_UseHorizonVector);
         cv::read(node["shouldTrain"], m_Train, m_Train);
         cv::read(node["shouldUseInfoMax"], m_UseInfoMax, m_UseInfoMax);
+        cv::read(node["shouldUseMBArdin"], m_UseMBArdin, m_UseMBArdin);
+        cv::read(node["shouldUseMBHOG"], m_UseMBHOG, m_UseMBHOG);
         cv::read(node["shouldSaveTestingDiagnostic"], m_SaveTestingDiagnostic, m_SaveTestingDiagnostic);
         cv::read(node["shouldStreamOutput"], m_StreamOutput, m_StreamOutput);
         
@@ -249,6 +255,12 @@ private:
     // Should we use InfoMax rather than Perfect Memory
     bool m_UseInfoMax;
     
+    // Should we use Ardin mushroom body model
+    bool m_UseMBArdin;
+
+    // Should we use mushroom body model with more biologically-plausible input
+    bool m_UseMBHOG;
+
     // Should we write out testing diagnostic information
     bool m_SaveTestingDiagnostic;
     
