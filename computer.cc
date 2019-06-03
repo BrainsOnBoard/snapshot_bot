@@ -20,7 +20,7 @@
 #include "video/display.h"
 #include "video/netsource.h"
 
-using namespace GeNNRobotics;
+using namespace BoBRobotics;
 
 int main(int argc, char **argv)
 {
@@ -30,7 +30,7 @@ int main(int argc, char **argv)
         robotIP = argv[1];
     } else {
         // get robot IP from terminal
-        std::cout << "Robot IP [127.0.0.1]: ";
+        LOGI << "Robot IP [127.0.0.1]: ";
         std::getline(std::cin, robotIP);
         if (robotIP.empty()) {
             robotIP = "127.0.0.1";
@@ -38,7 +38,7 @@ int main(int argc, char **argv)
     }
 
     // start networking API on Windows
-    WSAStartup();
+    OS::Net::WindowsNetworking::initialise();
 
     // use a separate scope so that socket is closed before WSACleanup is called
     {
@@ -51,7 +51,7 @@ int main(int argc, char **argv)
 
         const cv::Size videoSize = video.getOutputSize();
         
-        cv::namedWindow("Output", CV_WINDOW_NORMAL);
+        cv::namedWindow("Output", cv::WINDOW_NORMAL);
         cv::resizeWindow("Output", videoSize.width * 5, videoSize.height * 5);
         
         // poll joystick and video stream repeatedly
@@ -67,7 +67,4 @@ int main(int argc, char **argv)
             }
         }
     }
-
-    // shutdown networking API on Windows
-    WSACleanup();
 }
