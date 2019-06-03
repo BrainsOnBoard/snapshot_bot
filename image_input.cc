@@ -37,7 +37,7 @@ const cv::Mat &ImageInputRaw::processSnapshot(const cv::Mat &snapshot)
 // ImageInputBinary
 //----------------------------------------------------------------------------
 ImageInputBinary::ImageInputBinary(const Config &config)
-:   ImageInput(config), m_SegmentIndices(config.getUnwrapRes(), CV_32SC1), 
+:   ImageInput(config), m_TrueBinary(config.shouldUseTrueBinaryImage()), m_SegmentIndices(config.getUnwrapRes(), CV_32SC1),
     m_SegmentedImage(config.getUnwrapRes().height - 2, config.getUnwrapRes().width - 2, CV_8UC1)
 {
     // Read marker image
@@ -61,11 +61,18 @@ ImageInputBinary::ImageInputBinary(const Config &config)
 const cv::Mat &ImageInputBinary::processSnapshot(const cv::Mat &snapshot)
 {
     // Read indices of segments
+    // **NOTE** segmentedIndices should contain -1, 1 and 2 - this rescales to black, white and grey
     const cv::Mat segmentedIndices = readSegmentIndices(snapshot);
 
-    // Convert to greyscale image
-    // **NOTE** segmentedIndices should contain -1, 1 and 2 - this rescales to black, white and grey
-    segmentedIndices.convertTo(m_SegmentedImage, CV_8UC1, 85.0, 85.0);
+    // If we want true binary, turn sky pixels into white and ground to black
+    if(m_TrueBinary) {
+        std::transform(segmentedIndices.begin<int32_t>(), segmentedIndices.end<int32_t>(), m_SegmentedImage.begin<uint8_t>(),
+                       [](int32_t p){ return (p == 1) ? 255 : 0; });
+    }
+    else {
+        // Convert to greyscale image
+        segmentedIndices.convertTo(m_SegmentedImage, CV_8UC1, 85.0, 85.0);
+    }
     BOB_ASSERT(m_SegmentedImage.size() == getOutputSize());
     return m_SegmentedImage;
 }

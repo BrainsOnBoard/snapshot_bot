@@ -1,22 +1,24 @@
 WITH_EIGEN=1
 include $(BOB_ROBOTICS_PATH)/make_common/bob_robotics.mk
 
-SNAPSHOT_BOT_SOURCES	:= snapshot_bot.cc memory.cc image_input.cc
+COMMON_SOURCES		:= memory.cc image_input.cc mb_memory.cc mb_memory_ardin.cc mb_memory_hog.cc
+SNAPSHOT_BOT_SOURCES	:= snapshot_bot.cc $(COMMON_SOURCES)
 SNAPSHOT_BOT_OBJECTS	:= $(SNAPSHOT_BOT_SOURCES:.cc=.o)
 SNAPSHOT_BOT_DEPS	:= $(SNAPSHOT_BOT_SOURCES:.cc=.d)
 
-OFFLINE_TRAIN_SOURCES	:= offline_train.cc memory.cc image_input.cc
+OFFLINE_TRAIN_SOURCES	:= offline_train.cc $(COMMON_SOURCES)
 OFFLINE_TRAIN_OBJECTS	:= $(OFFLINE_TRAIN_SOURCES:.cc=.o)
 OFFLINE_TRAIN_DEPS	:= $(OFFLINE_TRAIN_SOURCES:.cc=.d)
 
-BENCHMARK_SOURCES	:= benchmark.cc memory.cc image_input.cc
+BENCHMARK_SOURCES	:= benchmark.cc $(COMMON_SOURCES)
 BENCHMARK_OBJECTS	:= $(BENCHMARK_SOURCES:.cc=.o)
 BENCHMARK_DEPS		:= $(BENCHMARK_SOURCES:.cc=.d)
 
-VALIDATE_SOURCES       := validate.cc memory.cc image_input.cc
-VALIDATE_OBJECTS       := $(VALIDATE_SOURCES:.cc=.o)
-VALIDATE_DEPS          := $(VALIDATE_SOURCES:.cc=.d)
+VALIDATE_SOURCES	:= validate.cc $(COMMON_SOURCES)
+VALIDATE_OBJECTS	:= $(VALIDATE_SOURCES:.cc=.o)
+VALIDATE_DEPS		:= $(VALIDATE_SOURCES:.cc=.d)
 
+LINK_FLAGS		+= -ldl
 
 .PHONY: all clean
 

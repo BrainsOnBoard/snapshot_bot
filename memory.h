@@ -10,6 +10,10 @@
 // BoB robotics third-party includes
 #include "third_party/units.h"
 
+// Snapshot bot includes
+#include "mb_memory_ardin.h"
+#include "mb_memory_hog.h"
+
 // Forward declarations
 class Config;
 
@@ -157,6 +161,50 @@ private:
     //------------------------------------------------------------------------
     const int m_ImageWidth;
     const size_t m_NumScanColumns;
+};
+
+//------------------------------------------------------------------------
+// MBArdinConstrained
+//------------------------------------------------------------------------
+class MBArdinConstrained : public MemoryBase
+{
+public:
+    MBArdinConstrained(const Config &config, const cv::Size &inputSize);
+
+    //------------------------------------------------------------------------
+    // MemoryBase virtuals
+    //------------------------------------------------------------------------
+    virtual void test(const cv::Mat &snapshot) override;
+    virtual void train(const cv::Mat &snapshot) override;
+
+    //virtual void writeCSVHeader(std::ostream &os);
+    //virtual void writeCSVLine(std::ostream &os);
+private:
+    //------------------------------------------------------------------------
+    // Members
+    //------------------------------------------------------------------------
+    const int m_ImageWidth;
+    const size_t m_NumScanColumns;
+
+    MBMemoryHOG m_Memory;
+};
+
+//------------------------------------------------------------------------
+// MBHOGConstrained
+//------------------------------------------------------------------------
+class MBHOGConstrained : public MemoryBase
+{
+public:
+    //------------------------------------------------------------------------
+    // MemoryBase virtuals
+    //------------------------------------------------------------------------
+    virtual void test(const cv::Mat &snapshot) override;
+    virtual void train(const cv::Mat &snapshot) override;
+
+    //virtual void writeCSVHeader(std::ostream &os);
+    //virtual void writeCSVLine(std::ostream &os);
+private:
+
 };
 
 std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &inputSize);

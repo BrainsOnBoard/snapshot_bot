@@ -78,6 +78,9 @@ private:
     //----------------------------------------------------------------------------
     // Members
     //----------------------------------------------------------------------------
+    // By default, this class actually produces trinary images, this flag
+    const bool m_TrueBinary;
+
     // Image containing watershed marker indices
     cv::Mat m_MarkerImage;
     
