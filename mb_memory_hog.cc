@@ -51,8 +51,8 @@ MBMemoryHOG::MBMemoryHOG()
 void MBMemoryHOG::beginPresent(const cv::Mat &snapshot) const
 {
      // Apply Sobel operator to image
-    cv::Sobel(snapshot, m_SobelX, CV_32F, 1, 0, 1);
-    cv::Sobel(snapshot, m_SobelY, CV_32F, 0, 1, 1);
+    cv::Sobel(snapshot, m_SobelX, CV_32F, 1, 0, 1, 1.0 / 255.0);
+    cv::Sobel(snapshot, m_SobelY, CV_32F, 0, 1, 1, 1.0 / 255.0);
 
     // At each pixel, take dot product of vector formed from x and y sobel operator and each direction vector
     typedef cv::Vec<float, MBParamsHOG::hogNumOrientations> PixelFeatures;
