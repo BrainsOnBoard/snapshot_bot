@@ -279,8 +279,9 @@ private:
                     }
                     m_LogFile << std::endl;
                 }
-                // Otherwise, if B is pressed, go to testing
-                else if(m_Joystick.isPressed(HID::JButton::B)) {
+                
+                // If B is pressed, go to testing
+                if(m_Joystick.isPressed(HID::JButton::B)) {
                     m_StateMachine.transition(State::WaitToTest);
                 }
             }
