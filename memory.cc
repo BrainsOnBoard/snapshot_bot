@@ -237,6 +237,39 @@ void MBArdinConstrained::train(const cv::Mat &snapshot)
     m_Memory.train(snapshot);
 }
 
+//------------------------------------------------------------------------
+// MBHOGConstrained
+//------------------------------------------------------------------------
+MBHOGConstrained::MBHOGConstrained(const Config &config, const cv::Size &inputSize)
+:   m_ImageWidth(inputSize.width),
+    m_NumScanColumns((size_t)std::round(turn_t(config.getMaxSnapshotRotateAngle()).value() * (double)inputSize.width))
+{
+    BOB_ASSERT(inputSize == m_Memory.getUnwrapResolution());
+}
+//------------------------------------------------------------------------
+void MBHOGConstrained::test(const cv::Mat &snapshot)
+{
+    // Get best heading from left side of scan
+    degree_t leftBestHeading;
+    float leftLowestDifference;
+    std::tie(leftBestHeading, leftLowestDifference, std::ignore) = m_Memory.getHeading(
+        snapshot, 1, 0, m_NumScanColumns);
+
+    // Get best heading from right side of scan
+    degree_t rightBestHeading;
+    float rightLowestDifference;
+    std::tie(rightBestHeading, rightLowestDifference, std::ignore) = m_Memory.getHeading(
+        snapshot, 1, m_ImageWidth - m_NumScanColumns, m_ImageWidth);
+
+    // Get lowest difference and best heading from across scans
+    setLowestDifference(std::min(leftLowestDifference, rightLowestDifference));
+    setBestHeading((leftLowestDifference < rightLowestDifference) ? leftBestHeading : rightBestHeading);
+}
+//------------------------------------------------------------------------
+void MBHOGConstrained::train(const cv::Mat &snapshot)
+{
+    m_Memory.train(snapshot);
+}
 
 std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &inputSize)
 {
@@ -254,6 +287,10 @@ std::unique_ptr<MemoryBase> createMemory(const Config &config, const cv::Size &i
     else if(config.shouldUseMBArdin()) {
         LOGI << "Creating MBArdinConstrained";
         return std::make_unique<MBArdinConstrained>(config, inputSize);
+    }
+    else if(config.shouldUseMBHOG()) {
+        LOGI << "Creating MBHOGConstrained";
+        return std::make_unique<MBHOGConstrained>(config, inputSize);
     }
     else {
         if(config.getMaxSnapshotRotateAngle() < 180_deg) {
