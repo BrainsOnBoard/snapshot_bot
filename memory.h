@@ -186,7 +186,7 @@ private:
     const int m_ImageWidth;
     const size_t m_NumScanColumns;
 
-    MBMemoryHOG m_Memory;
+    MBMemoryArdin m_Memory;
 };
 
 //------------------------------------------------------------------------
