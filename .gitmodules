@@ -1,0 +1,3 @@
+[submodule "bob_robotics"]
+	path = bob_robotics
+	url = ../bob_robotics
