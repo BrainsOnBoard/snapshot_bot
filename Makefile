@@ -1,4 +1,8 @@
 WITH_EIGEN=1
+
+ifndef USE_LOCAL_BOB_ROBOTICS
+	BOB_ROBOTICS_PATH := bob_robotics
+endif
 include $(BOB_ROBOTICS_PATH)/make_common/bob_robotics.mk
 
 SNAPSHOT_BOT_SOURCES	:= snapshot_bot.cc memory.cc image_input.cc
@@ -15,10 +19,10 @@ BENCHMARK_DEPS		:= $(BENCHMARK_SOURCES:.cc=.d)
 
 VALIDATE_SOURCES       := validate.cc memory.cc image_input.cc
 VALIDATE_OBJECTS       := $(VALIDATE_SOURCES:.cc=.o)
-VALIDATE_DEPS          := $(VALIDATE_SOURCES:.cc=.d)
+VALIDATE_DEPS	  := $(VALIDATE_SOURCES:.cc=.d)
 
 
-.PHONY: all clean
+.PHONY: all clean git_submodule
 
 all: snapshot_bot computer offline_train benchmark validate
 
@@ -40,13 +44,20 @@ validate: $(VALIDATE_OBJECTS)
 -include $(BENCHMARK_DEPS)
 -include $(VALIDATE_DEPS)
 
-%.o: %.cc %.d
+%.o: %.cc %.d git_submodule
 	$(CXX) -c -o $@ $< $(CXXFLAGS)
 
 -include computer.d
 
 computer: computer.cc computer.d
 	$(CXX) -o $@ $< $(CXXFLAGS) $(LINK_FLAGS)
+
+git_submodule:
+ifdef USE_LOCAL_BOB_ROBOTICS
+	@echo !!! USING LOCAL BOB ROBOTICS REPO !!!
+else
+	git submodule update --init --recursive
+endif
 
 %.d: ;
 
