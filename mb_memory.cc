@@ -147,19 +147,23 @@ std::tuple<unsigned int, unsigned int, unsigned int> MBMemory::present(const cv:
     m_SLM.setTime(0.0f);
 
     // Clear spike records
+#ifdef RECORD_INTERMEDIATES
     m_PNSpikes.clear();
     m_KCSpikes.clear();
     m_ENSpikes.clear();
 
     std::vector<bool> pnSpikeBitset(m_NumPN, false);
     std::vector<bool> kcSpikeBitset(m_NumKC, false);
+#endif
 
     // Reset time of last dopamine spike
     *m_TDKCToEN = std::numeric_limits<float>::lowest();
 
     // Loop through timesteps
+#ifdef RECORD_INTERMEDIATES
     m_NumPNSpikes = 0;
     m_NumKCSpikes = 0;
+#endif
     m_NumENSpikes = 0;
     while(m_SLM.getTimestep() < duration) {
         // If we should stop presenting image
@@ -176,10 +180,13 @@ std::tuple<unsigned int, unsigned int, unsigned int> MBMemory::present(const cv:
         m_SLM.stepTime();
 
         // Download spikes
+//#ifndef __aarch64__
+        m_SLM.pullCurrentSpikesFromDevice("EN");
+//#endif
+#ifdef RECORD_INTERMEDIATES
         m_SLM.pullCurrentSpikesFromDevice("PN");
         m_SLM.pullCurrentSpikesFromDevice("KC");
-        m_SLM.pullCurrentSpikesFromDevice("EN");
-
+#endif
         // If a dopamine spike has been injected this timestep
         if(*m_InjectDopamineKCToEN) {
             // Decay global dopamine traces
@@ -196,6 +203,7 @@ std::tuple<unsigned int, unsigned int, unsigned int> MBMemory::present(const cv:
         }
 
         m_NumENSpikes += m_SpkCntEN[0];
+#ifdef RECORD_INTERMEDIATES
         m_NumPNSpikes += m_SpkCntPN[0];
         m_NumKCSpikes += m_SpkCntKC[0];
         for(unsigned int i = 0; i < m_SpkCntPN[0]; i++) {
@@ -210,6 +218,7 @@ std::tuple<unsigned int, unsigned int, unsigned int> MBMemory::present(const cv:
         record(m_SLM.getTime(), m_SpkCntPN[0], m_SpkPN, m_PNSpikes);
         record(m_SLM.getTime(), m_SpkCntKC[0], m_SpkKC, m_KCSpikes);
         record(m_SLM.getTime(), m_SpkCntEN[0], m_SpkEN, m_ENSpikes);
+#endif
     }
 
 #ifdef RECORD_TERMINAL_SYNAPSE_STATE
@@ -224,6 +233,7 @@ std::tuple<unsigned int, unsigned int, unsigned int> MBMemory::present(const cv:
     std::cout << "Final dopamine level:" << *m_DKCToEN * std::exp(-(t - *m_TDKCToEN) / m_TauD) << std::endl;
 #endif  // RECORD_TERMINAL_SYNAPSE_STATE
 
+#ifdef RECORD_INTERMEDIATES
     // Cache number of unique active cells
     m_NumActivePN = std::count(pnSpikeBitset.cbegin(), pnSpikeBitset.cend(), true);
     m_NumActiveKC = std::count(kcSpikeBitset.cbegin(), kcSpikeBitset.cend(), true);
@@ -238,6 +248,8 @@ std::tuple<unsigned int, unsigned int, unsigned int> MBMemory::present(const cv:
         m_NumUsedWeights = numWeights - std::count(&m_GKCToEN[0], &m_GKCToEN[numWeights], 0.0f);
     }
 
-    //std::cout << m_NumActivePN << "," << m_NumActiveKC << std::endl;
     return std::make_tuple(m_NumPNSpikes, m_NumKCSpikes, m_NumENSpikes);
+#else
+    return std::make_tuple(0, 0, m_NumENSpikes);
+#endif
 }
