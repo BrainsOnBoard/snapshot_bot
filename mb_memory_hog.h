@@ -37,9 +37,11 @@ private:
     // Image containing pixel orientations - one channel per orientation
     mutable cv::Mat m_PixelOrientations;
 
-    mutable cv::Mat m_HOGFeatures;
+    // Final feature vector to pass to MB
+    mutable cv::Mat m_Features;
 
-    std::array<cv::Vec2f, MBParamsHOG::hogNumOrientations> m_HOGDirections;
+    // Vectors used to calculate orientation features from Sobel features
+    std::array<cv::Vec2f, MBParamsHOG::numOrientations> m_Directions;
 
     float *m_IExtPN;
 };

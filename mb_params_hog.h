@@ -10,21 +10,29 @@ namespace MBParamsHOG
     
     constexpr double timestepMs = 1.0;
 
-    constexpr unsigned int inputWidth = 86;
+    // 90x20 = 1800 = 900 ommatidia in each eye
+    constexpr unsigned int inputWidth = 90;
     constexpr unsigned int inputHeight = 20;
 
-    // HOG feature configuration
-    constexpr int hogNumOrientations = 3;
-    constexpr int hogRFSize = 8;
-    constexpr int hogRFStride = 6;
-    constexpr int hogNumRFX = 14;
-    constexpr int hogNumRFY = 3;
+    // Receptive field configuration
+    constexpr int rfWidth = 6;
+    constexpr int rfHeight = 20;
+    constexpr int rfStrideX = 4;
+    constexpr int rfStrideY = 20;
+    constexpr int numRFX = 22;
+    constexpr int numRFY = 1;
 
-    // Calculate hog feature size
-    constexpr int hogFeatureSize = hogNumOrientations * hogNumRFX * hogNumRFY;
+    // Orientation configuration
+    constexpr int numOrientations = 3;
+
+    // Calculate number of features per RF (orientations + area)
+    constexpr int numFeatures = numOrientations + 1;
+
+    // Calculate total size of feature vector
+    constexpr int featureSize = numFeatures * numRFX * numRFY;
 
     // Network dimensions
-    constexpr unsigned int numPN = (unsigned int)hogFeatureSize;
+    constexpr unsigned int numPN = (unsigned int)featureSize;
     constexpr unsigned int numKC = 20000;
     constexpr unsigned int numEN = 1;
 
@@ -53,21 +61,17 @@ namespace MBParamsHOG
     // Time constant of dopamine
     constexpr double tauD = 20.0;
 
-    // Midpoint of sigmoid used for graded potential synapses
-    constexpr double ggnToKCVMid = -54.1;
+    constexpr double ggnToKCVMid = -40.0;
 
-    // Slope of sigmoid used for graded potential synapses
-    constexpr double ggnToKCVslope = 1.0;
+    constexpr double ggnToKCVslope = 2.0;
 
-    // GGC membrane voltage where graded potential synapse activates
-    constexpr double ggnToKCVthresh = -60.0;
+    constexpr double ggnToKCVthresh = -50.0;
 
-    // Spiking thereshold for PN
     constexpr double pnVthresh = -50.0;
 
     // Scale of each dopamine 'spike'
     // **NOTE** manually tuned for one-shot learning - also close to BA/phi
-    constexpr double dopamineStrength = 0.0289;
+    constexpr double dopamineStrength = 0.03;
 
     // How many PN neurons are connected to each KC
     constexpr unsigned int numPNSynapsesPerKC = 10;
