@@ -29,7 +29,7 @@ MBMemoryHOG::MBMemoryHOG()
                  MBParamsHOG::inputWidth, MBParamsHOG::inputHeight,
                  MBParamsHOG::tauD, MBParamsHOG::kcToENWeight, MBParamsHOG::dopamineStrength,
                  MBParamsHOG::rewardTimeMs, MBParamsHOG::presentDurationMs, MBParamsHOG::timestepMs,
-                 "mb_memory_hog"),
+                 "mb_memory_hog", MBParamsHOG::timing),
         m_SobelX(MBParamsHOG::inputHeight, MBParamsHOG::inputWidth, CV_32FC1), m_SobelY(MBParamsHOG::inputHeight, MBParamsHOG::inputWidth, CV_32FC1),
         m_PixelOrientations(MBParamsHOG::inputHeight, MBParamsHOG::inputWidth, CV_MAKETYPE(CV_32F, MBParamsHOG::hogNumOrientations)),
         m_HOGFeatures(MBParamsHOG::hogNumRFY, MBParamsHOG::hogNumRFX, CV_MAKETYPE(CV_32F, MBParamsHOG::hogNumOrientations)), m_IExtPN(nullptr)
@@ -96,7 +96,9 @@ void MBMemoryHOG::beginPresent(const cv::Mat &snapshot) const
     // Copy HOG features into external input current
     BOB_ASSERT(m_HOGFeatures.isContinuous());
     std::copy_n(reinterpret_cast<float*>(m_HOGFeatures.data), MBParamsHOG::hogFeatureSize, m_IExtPN);
+//#ifndef __aarch64__
     getSLM().pushVarToDevice("PN", "Iext");
+//#endif
 }
 //----------------------------------------------------------------------------
 void MBMemoryHOG::endPresent() const
@@ -104,5 +106,7 @@ void MBMemoryHOG::endPresent() const
     std::fill_n(m_IExtPN, MBParamsHOG::numPN, 0.0f);
 
     // Copy external input current to device
+//#ifndef __aarch64__
     getSLM().pushVarToDevice("PN", "Iext");
+//#endif
 }

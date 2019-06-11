@@ -36,7 +36,7 @@ public:
              int inputWidth, int inputHeight,
              double tauD, double kcToENWeight, double dopamineStrength,
              double rewardTimeMs, double presentDurationMs, double timestepMs,
-             const std::string &modelName);
+             const std::string &modelName, bool timing);
     virtual ~MBMemory();
 
     //------------------------------------------------------------------------
@@ -145,6 +145,8 @@ private:
     //------------------------------------------------------------------------
     // Members
     //------------------------------------------------------------------------
+    const bool m_Timing;
+    
     // Model parameters
     const unsigned int m_NumPN;
     const unsigned int m_NumKC;
@@ -171,6 +173,11 @@ private:
     unsigned int *m_SpkPN;
     float *m_GKCToEN;
 
+    // Timing variables
+    double *m_NeuronUpdateTime;
+    double *m_PresynapticUpdateTime;
+    double *m_PostsynapticUpdateTime;
+    
     // Simulation parameters
     const float m_KCToENDopamineStrength;
     const float m_RewardTimeMs;

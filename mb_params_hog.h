@@ -5,6 +5,9 @@
 //------------------------------------------------------------------------
 namespace MBParamsHOG
 {
+    // Should we measure timing
+    constexpr bool timing = true;
+    
     constexpr double timestepMs = 1.0;
 
     constexpr unsigned int inputWidth = 86;

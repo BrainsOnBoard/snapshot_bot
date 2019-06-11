@@ -48,8 +48,8 @@ MBMemory::MBMemory(unsigned int numPN, unsigned int numKC, unsigned int numEN, u
                    int inputWidth, int inputHeight,
                    double tauD, double kcToENWeight, double dopamineStrength,
                    double rewardTimeMs, double presentDurationMs, double timestepMs,
-                   const std::string &modelName)
-:   Navigation::VisualNavigationBase(cv::Size(inputWidth, inputHeight)), m_NumPN(numPN), m_NumKC(numKC), m_NumEN(numEN), m_NumPNSynapsesPerKC(numPNSynapsesPerKC),
+                   const std::string &modelName, bool timing)
+:   Navigation::VisualNavigationBase(cv::Size(inputWidth, inputHeight)), m_Timing(timing), m_NumPN(numPN), m_NumKC(numKC), m_NumEN(numEN), m_NumPNSynapsesPerKC(numPNSynapsesPerKC),
     m_InputWidth(inputWidth), m_InputHeight(inputHeight), m_TauD(tauD), m_KCToENWeight(kcToENWeight), m_TimestepMs(timestepMs),
     m_KCToENDopamineStrength(dopamineStrength), m_RewardTimeMs(rewardTimeMs), m_PresentDurationMs(presentDurationMs),
     m_NumPNSpikes(0), m_NumKCSpikes(0), m_NumENSpikes(0), m_NumUsedWeights(MBParamsHOG::numKC * MBParamsHOG::numEN),
@@ -101,6 +101,11 @@ MBMemory::MBMemory(unsigned int numPN, unsigned int numKC, unsigned int numEN, u
     m_SpkCntPN = m_SLM.getArray<unsigned int>("glbSpkCntPN");
     m_SpkPN = m_SLM.getArray<unsigned int>("glbSpkPN");
     m_GKCToEN = m_SLM.getArray<float>("gkcToEN");
+    
+    // Get pointers to timers
+    m_NeuronUpdateTime = m_SLM.getScalar<double>("neuronUpdateTime");
+    m_PresynapticUpdateTime = m_SLM.getScalar<double>("presynapticUpdateTime");
+    m_PostsynapticUpdateTime = m_SLM.getScalar<double>("postsynapticUpdateTime");
 }
 //----------------------------------------------------------------------------
 MBMemory::~MBMemory()
@@ -159,6 +164,13 @@ std::tuple<unsigned int, unsigned int, unsigned int> MBMemory::present(const cv:
     // Reset time of last dopamine spike
     *m_TDKCToEN = std::numeric_limits<float>::lowest();
 
+    // Reset timers
+    if(m_Timing) {
+        *m_NeuronUpdateTime = 0.0;
+        *m_PresynapticUpdateTime = 0.0;
+        *m_PostsynapticUpdateTime = 0.0;
+    }
+    
     // Loop through timesteps
 #ifdef RECORD_INTERMEDIATES
     m_NumPNSpikes = 0;
@@ -221,6 +233,11 @@ std::tuple<unsigned int, unsigned int, unsigned int> MBMemory::present(const cv:
 #endif
     }
 
+    if(m_Timing) {
+        std::cout << "Neuron update:" << *m_NeuronUpdateTime * 1000.0 << "ms, ";
+        std::cout << "Presynaptic update:" << *m_PresynapticUpdateTime * 1000.0  << "ms, ";
+        std::cout << "Postsynaptic update:" << *m_PostsynapticUpdateTime * 1000.0  << "ms" << std::endl;
+    }
 #ifdef RECORD_TERMINAL_SYNAPSE_STATE
     // Download synaptic state
     m_SLM.pullStateFromDevice("EN");

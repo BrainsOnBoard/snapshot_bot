@@ -78,6 +78,7 @@ void modelDefinition(NNmodel &model)
 {
     model.setDT(MBParamsHOG::timestepMs);
     model.setName("mb_memory_hog");
+    model.setTiming(MBParamsHOG::timing);
 
     //---------------------------------------------------------------------------
     // Neuron model parameters
@@ -178,11 +179,16 @@ void modelDefinition(NNmodel &model)
         MBParamsHOG::ggnToKCWeight);    // 0 - Synaptic weight
 
     // Create neuron populations
-    model.addNeuronPopulation<LIFExtCurrent>("PN", MBParamsHOG::numPN, pnParams, pnInit);
+    auto *pn = model.addNeuronPopulation<LIFExtCurrent>("PN", MBParamsHOG::numPN, pnParams, pnInit);
     model.addNeuronPopulation<NeuronModels::LIF>("KC", MBParamsHOG::numKC, kcParams, lifInit);
-    model.addNeuronPopulation<NeuronModels::LIF>("EN", MBParamsHOG::numEN, enParams, lifInit);
+    auto *en = model.addNeuronPopulation<NeuronModels::LIF>("EN", MBParamsHOG::numEN, enParams, lifInit);
     model.addNeuronPopulation<NeuronModels::LIF>("GGN", 1, ggnParams, lifInit);
 
+/*#ifdef __aarch64__
+    pn->setVarLocation("Iext", VarLocation::HOST_DEVICE_ZERO_COPY);
+    en->setSpikeLocation(VarLocation::HOST_DEVICE_ZERO_COPY);
+#endif*/
+    
     auto pnToKC = model.addSynapsePopulation<WeightUpdateModels::StaticPulse, PostsynapticModels::ExpCurr>(
         "pnToKC", SynapseMatrixType::SPARSE_GLOBALG, NO_DELAY,
         "PN", "KC",

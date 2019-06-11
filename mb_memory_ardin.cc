@@ -14,7 +14,7 @@ MBMemoryArdin::MBMemoryArdin()
                  MBParamsArdin::intermediateWidth, MBParamsArdin::intermediateHeight,
                  MBParamsArdin::tauD, MBParamsArdin::kcToENWeight, MBParamsArdin::dopamineStrength,
                  MBParamsArdin::rewardTimeMs, MBParamsArdin::presentDurationMs, MBParamsArdin::timestepMs,
-                 "mb_memory_ardin"),
+                 "mb_memory_ardin", false),
         m_Clahe(cv::createCLAHE(40.0, cv::Size(8, 8))),
         m_IntermediateSnapshotGreyscale(MBParamsArdin::intermediateHeight, MBParamsArdin::intermediateWidth, CV_8UC1),
         m_FinalSnapshot(MBParamsArdin::inputHeight, MBParamsArdin::inputWidth, CV_8UC1),
