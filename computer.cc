@@ -12,7 +12,7 @@
 #include <iostream>
 #include <thread>
 
-// GeNN robotics includes
+// BoB robotics includes
 #include "hid/joystick.h"
 #include "net/client.h"
 #include "os/net.h"
@@ -50,18 +50,18 @@ int main(int argc, char **argv)
         Video::NetSource video(client);
 
         const cv::Size videoSize = video.getOutputSize();
-        
+
         cv::namedWindow("Output", cv::WINDOW_NORMAL);
         cv::resizeWindow("Output", videoSize.width * 5, videoSize.height * 5);
-        
+
         // poll joystick and video stream repeatedly
         cv::Mat frame(videoSize, CV_8UC1);
         while(true) {
             // Read video frame
             video.readFrame(frame);
-            
+
             cv::imshow("Output", frame);
-            
+
             if(cv::waitKey(33) == 27) {
                 break;
             }
