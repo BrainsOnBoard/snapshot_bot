@@ -56,7 +56,7 @@ void MBMemoryHOG::beginPresent(const cv::Mat &snapshot) const
 
     // At each pixel, take dot product of vector formed from x and y sobel operator and each direction vector
     typedef cv::Vec<float, MBParamsHOG::numOrientations> OrientationFeatures;
-    static_assert(sizeof(OrientationFeatures) == (MBParamsHOG::numOrientations * sizeof(float)));
+    static_assert(sizeof(OrientationFeatures) == (MBParamsHOG::numOrientations * sizeof(float)), "Feature size mismatch");
     std::transform(m_SobelX.begin<float>(), m_SobelX.end<float>(), m_SobelY.begin<float>(), m_PixelOrientations.begin<OrientationFeatures>(),
                    [this](float x, float y)
                    {
