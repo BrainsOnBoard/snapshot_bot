@@ -192,13 +192,12 @@ std::tuple<unsigned int, unsigned int, unsigned int> MBMemory::present(const cv:
         m_SLM.stepTime();
 
         // Download spikes
-//#ifndef __aarch64__
-        m_SLM.pullCurrentSpikesFromDevice("EN");
-//#endif
 #ifdef RECORD_INTERMEDIATES
         m_SLM.pullCurrentSpikesFromDevice("PN");
         m_SLM.pullCurrentSpikesFromDevice("KC");
 #endif
+        m_SLM.pullCurrentSpikesFromDevice("EN");
+
         // If a dopamine spike has been injected this timestep
         if(*m_InjectDopamineKCToEN) {
             // Decay global dopamine traces

@@ -2,6 +2,7 @@
 
 // Standard C++ includes
 #include <chrono>
+#include <map>
 #include <string>
 
 // OpenCV
@@ -22,8 +23,9 @@ class Config
 public:
     Config() : m_UseHOG(false), m_UseBinaryImage(false), m_UseTrueBinaryImage(false), m_UseHorizonVector(false), m_Train(true), m_UseInfoMax(false), m_UseMBArdin(false), m_UseMBHOG(false),
         m_SaveTestingDiagnostic(false), m_StreamOutput(false), m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
-        m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TrainInterval(100.0), m_MotorCommandInterval(500.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort), m_MoveSpeed(0.25f), m_TurnSpeed(0.1f),
-        m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"), m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
+        m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TrainInterval(100.0), m_MotorCommandInterval(500.0), m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort), m_MoveSpeed(0.25),
+        m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
+        m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
     {
     }
 
@@ -74,7 +76,23 @@ public:
     int getServerListenPort() const{ return m_ServerListenPort; }
     
     float getMoveSpeed() const{ return m_MoveSpeed; }
-    float getTurnSpeed() const{ return m_TurnSpeed; }
+    
+    float getTurnSpeed(units::angle::degree_t angleDifference) const
+    {
+        const auto absoluteAngleDifference = units::math::fabs(angleDifference);
+        
+        // Loop through turn speed thresholds in descending order
+        for(auto i = m_TurnThresholds.crbegin(); i != m_TurnThresholds.crend(); ++i) {
+            // If the angle difference passes this threshold, return corresponding speed
+            if(absoluteAngleDifference >= i->first) {
+                return i->second;
+            }
+        }
+        
+        // No turning required!
+        return 0.0f;
+    }
+
 
     void write(cv::FileStorage& fs) const
     {
@@ -103,7 +121,11 @@ public:
         fs << "motorCommandInterval" << getMotorCommandInterval().count();
         fs << "serverListenPort" << getServerListenPort();
         fs << "moveSpeed" << getMoveSpeed();
-        fs << "turnSpeed" << getTurnSpeed();
+        fs << "turnThresholds" << "[";
+        for(const auto &t : m_TurnThresholds) {
+            fs << "[" << t.first.value() << t.second << "]";
+        }
+        fs << "]";
         
         if(shouldUseViconTracking()) {
             fs << "viconTracking" << "{";
@@ -167,7 +189,6 @@ public:
         cv::read(node["serverListenPort"], m_ServerListenPort, m_ServerListenPort);
         cv::read(node["autoTrain"], m_AutoTrain, m_AutoTrain);
         cv::read(node["moveSpeed"], m_MoveSpeed, m_MoveSpeed);
-        cv::read(node["turnSpeed"], m_TurnSpeed, m_TurnSpeed);
         
         double trainInterval;
         cv::read(node["trainInterval"], trainInterval, m_TrainInterval.count());
@@ -176,6 +197,14 @@ public:
         double motorCommandInterval;
         cv::read(node["motorCommandInterval"], motorCommandInterval, m_MotorCommandInterval.count());
         m_MotorCommandInterval = (Milliseconds)motorCommandInterval;
+        
+        if(node["turnThresholds"].isSeq()) {
+            m_TurnThresholds.clear();
+            for(const auto &t : node["turnThresholds"]) {
+                assert(t.isSeq() && t.size() == 2);
+                m_TurnThresholds.emplace(units::angle::degree_t((double)t[0]), (float)t[1]);
+            }
+        }
         
         const auto &viconTracking = node["viconTracking"];
         if(viconTracking.isMap()) {
@@ -274,9 +303,9 @@ private:
     
     // How fast robot should move when heading to snapshot
     float m_MoveSpeed;
-
-    // How fast robot should turn
-    float m_TurnSpeed;
+    
+    // RDF angle difference thresholds that trigger different turning speeds
+    std::map<units::angle::degree_t, float> m_TurnThresholds;
     
     // Vicon tracking settings
     bool m_UseViconTracking;
