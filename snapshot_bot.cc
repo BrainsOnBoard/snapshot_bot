@@ -10,6 +10,7 @@
 // BoB robotics includes
 #include "common/fsm.h"
 #include "common/logging.h"
+#include "common/stopwatch.h"
 #include "common/timer.h"
 #include "hid/joystick.h"
 #include "imgproc/opencv_unwrap_360.h"
@@ -46,6 +47,7 @@ enum class State
     Training,
     WaitToTest,
     Testing,
+    Driving,
 };
 
 //------------------------------------------------------------------------
@@ -227,15 +229,14 @@ private:
                 m_LogFile << std::endl;
 
                 // Reset train time and test image
-                m_LastTrainTime = m_RecordingStartTime = std::chrono::high_resolution_clock::now();
+                m_RecordingStopwatch.start();
+                m_TrainingStopwatch.start();
 
                 // Delete old snapshots
                 const std::string snapshotWildcard = (m_Config.getOutputPath() / "snapshot_*.png").str();
                 system(("rm -f " + snapshotWildcard).c_str());
             }
             else if(event == Event::Update) {
-                const auto currentTime = std::chrono::high_resolution_clock::now();
-
                 // While testing, if we should stream output, send unwrapped frame
                 /*if(m_Config.shouldStreamOutput()) {
                     m_NetSink.sendFrame(m_Unwrapped);
@@ -245,9 +246,9 @@ private:
                 m_Motor.drive(m_Joystick, m_Config.getJoystickDeadzone());
 
                 // If A is pressed
-                if(m_Joystick.isPressed(HID::JButton::A) || (m_Config.shouldAutoTrain() && (currentTime - m_LastTrainTime) > m_Config.getTrainInterval())) {
+                if(m_Joystick.isPressed(HID::JButton::A) || (m_Config.shouldAutoTrain() && m_TrainingStopwatch.elapsed() > m_Config.getTrainInterval())) {
                     // Update last train time
-                    m_LastTrainTime = currentTime;
+                    m_TrainingStopwatch.start();
 
                     // Train memory
                     LOGI << "\tTrained snapshot" ;
@@ -258,7 +259,7 @@ private:
                     cv::imwrite(filename, m_Unwrapped);
 
                     // Write time
-                    m_LogFile << ((Seconds)(currentTime - m_RecordingStartTime)).count() << ", " << filename;
+                    m_LogFile << ((Seconds)m_RecordingStopwatch.elapsed()).count() << ", " << filename;
 
                     // If Vicon tracking is available
                     if(m_Config.shouldUseViconTracking()) {
@@ -277,6 +278,9 @@ private:
                 if(m_Joystick.isPressed(HID::JButton::B)) {
                     m_StateMachine.transition(State::WaitToTest);
                 }
+            }
+            else if(event == Event::Exit) {
+                m_Motor.tank(0.0f, 0.0f);
             }
         }
         else if(state == State::WaitToTest) {
@@ -322,7 +326,7 @@ private:
                 m_LogFile << std::endl;
 
                 // Reset test time and test image
-                m_LastMotorCommandTime = m_RecordingStartTime = std::chrono::high_resolution_clock::now();
+                m_RecordingStopwatch.start();
                 m_TestImageIndex = 0;
 
                 // Delete old testing images
@@ -330,89 +334,92 @@ private:
                 system(("rm -f " + testWildcard).c_str());
             }
             else if(event == Event::Update) {
-                const auto currentTime = std::chrono::high_resolution_clock::now();
+                // Find matching snapshot
+                m_Memory->test(m_ImageInput->processSnapshot(m_Unwrapped));
 
-                // If it's time to move
-                if((currentTime - (m_LastMotorCommandTime + m_TestDuration)) > m_Config.getMotorCommandInterval()) {
-                    // Find matching snapshot
-                    m_Memory->test(m_ImageInput->processSnapshot(m_Unwrapped));
+                // Write time
+                m_LogFile << ((Seconds)m_RecordingStopwatch.elapsed()).count() << ", ";
 
-                    // Write time
-                    m_LogFile << ((Seconds)(currentTime - m_RecordingStartTime)).count() << ", ";
+                // Write memory-specific CSV logging
+                m_Memory->writeCSVLine(m_LogFile);
 
-                    // Write memory-specific CSV logging
-                    m_Memory->writeCSVLine(m_LogFile);
+                // If vicon tracking is available
+                if(m_Config.shouldUseViconTracking()) {
+                    // Get tracking data
+                    auto objectData = m_ViconTracking.getObjectData(0);
+                    const auto &position = objectData.getPosition<units::length::millimeter_t>();
+                    const auto &attitude = objectData.getAttitude<units::angle::degree_t>();
 
-                    // If vicon tracking is available
-                    if(m_Config.shouldUseViconTracking()) {
-                        // Get tracking data
-                        auto objectData = m_ViconTracking.getObjectData(0);
-                        const auto &position = objectData.getPosition<units::length::millimeter_t>();
-                        const auto &attitude = objectData.getAttitude<units::angle::degree_t>();
-
-                        // Write extra logging data
-                        m_LogFile << ", " << objectData.getFrameNumber() << ", " << position[0] << ", " << position[1] << ", " << position[2] << ", " << attitude[0] << ", " << attitude[1] << ", " << attitude[2];
-                    }
-
-                    // If we should save diagnostics when testing
-                    if(m_Config.shouldSaveTestingDiagnostic()) {
-                        const std::string filename = "test" + m_Config.getTestingSuffix() + "_" + std::to_string(m_TestImageIndex++) + ".png";
-                        m_LogFile << ", " << filename;
-                        // Build path to test image and save
-                        const auto testImagePath = m_Config.getOutputPath() / filename;
-                        cv::imwrite(testImagePath.str(), m_Unwrapped);
-                    }
-
-                    m_LogFile << std::endl;
-
-                    // If we should stream output
-                    /*if(m_Config.shouldStreamOutput()) {
-                        // Attempt to dynamic cast memory to a perfect memory
-                        PerfectMemory *perfectMemory = dynamic_cast<PerfectMemory*>(m_Memory.get());
-                        if(perfectMemory != nullptr) {
-                            // Get matched snapshot
-                            const cv::Mat &matchedSnapshot = perfectMemory->getBestSnapshot();
-
-                            // Calculate difference image
-                            cv::absdiff(matchedSnapshot, m_Unwrapped, m_DifferenceImage);
-
-                            char status[255];
-                            sprintf(status, "Angle:%f deg, Min difference:%f", degree_t(perfectMemory->getBestHeading()).value(), perfectMemory->getLowestDifference());
-                            cv::putText(m_DifferenceImage, status, cv::Point(0, m_Config.getUnwrapRes().height -20),
-                                        cv::FONT_HERSHEY_COMPLEX_SMALL, 1.0, 0xFF);
-
-                            // Send annotated difference image
-                            //m_NetSink.sendFrame(m_DifferenceImage);
-                        }
-                        else {
-                            LOGW << "WARNING: Can only stream output from a perfect memory";
-                        }
-                    }*/
-                    // Get time after testing and thus calculate how long it took
-                    const auto motorTime = std::chrono::high_resolution_clock::now();
-                    m_TestDuration = motorTime - currentTime;
-
-                    // If test duration is longer than motor command interval, this schedule cannot be maintained so give a warning
-                    if(m_TestDuration > m_Config.getMotorCommandInterval()) {
-                        LOGW << "last test took " << m_TestDuration.count() << "ms - this is longer than desired motor command interval (" << m_Config.getMotorCommandInterval().count() << "ms)";
-                    }
-
-                    // Reset move time
-                    m_LastMotorCommandTime = motorTime;
-
-                    // Determine how fast we should turn based on the absolute angle
-                    auto turnSpeed = m_Config.getTurnSpeed(m_Memory->getBestHeading());
-
-                    // If we should turn, do so
-                    if(turnSpeed > 0.0f) {
-                        const float motorTurn = (m_Memory->getBestHeading() <  0.0_deg) ? turnSpeed : -turnSpeed;
-                        m_Motor.tank(motorTurn, -motorTurn);
-                    }
-                    // Otherwise drive forwards
-                    else {
-                        m_Motor.tank(m_Config.getMoveSpeed(), m_Config.getMoveSpeed());
-                    }
+                    // Write extra logging data
+                    m_LogFile << ", " << objectData.getFrameNumber() << ", " << position[0] << ", " << position[1] << ", " << position[2] << ", " << attitude[0] << ", " << attitude[1] << ", " << attitude[2];
                 }
+
+                // If we should save diagnostics when testing
+                if(m_Config.shouldSaveTestingDiagnostic()) {
+                    const std::string filename = "test" + m_Config.getTestingSuffix() + "_" + std::to_string(m_TestImageIndex++) + ".png";
+                    m_LogFile << ", " << filename;
+                    // Build path to test image and save
+                    const auto testImagePath = m_Config.getOutputPath() / filename;
+                    cv::imwrite(testImagePath.str(), m_Unwrapped);
+                }
+
+                m_LogFile << std::endl;
+
+                // If we should stream output
+                /*if(m_Config.shouldStreamOutput()) {
+                    // Attempt to dynamic cast memory to a perfect memory
+                    PerfectMemory *perfectMemory = dynamic_cast<PerfectMemory*>(m_Memory.get());
+                    if(perfectMemory != nullptr) {
+                        // Get matched snapshot
+                        const cv::Mat &matchedSnapshot = perfectMemory->getBestSnapshot();
+
+                        // Calculate difference image
+                        cv::absdiff(matchedSnapshot, m_Unwrapped, m_DifferenceImage);
+
+                        char status[255];
+                        sprintf(status, "Angle:%f deg, Min difference:%f", degree_t(perfectMemory->getBestHeading()).value(), perfectMemory->getLowestDifference());
+                        cv::putText(m_DifferenceImage, status, cv::Point(0, m_Config.getUnwrapRes().height -20),
+                                    cv::FONT_HERSHEY_COMPLEX_SMALL, 1.0, 0xFF);
+
+                        // Send annotated difference image
+                        //m_NetSink.sendFrame(m_DifferenceImage);
+                    }
+                    else {
+                        LOGW << "WARNING: Can only stream output from a perfect memory";
+                    }
+                }*/
+                // Get time after testing and thus calculate how long it took
+                const auto motorTime = std::chrono::high_resolution_clock::now();
+                m_TestDuration = motorTime - currentTime;
+
+                // Determine how fast we should turn based on the absolute angle
+                auto turnSpeed = m_Config.getTurnSpeed(m_Memory->getBestHeading());
+
+                // If we should turn, do so
+                if(turnSpeed > 0.0f) {
+                    const float motorTurn = (m_Memory->getBestHeading() <  0.0_deg) ? turnSpeed : -turnSpeed;
+                    m_Motor.tank(motorTurn, -motorTurn);
+                }
+                // Otherwise drive forwards
+                else {
+                   m_Motor.tank(m_Config.getMoveSpeed(), m_Config.getMoveSpeed());
+                }
+
+                // Transition to driving state
+                m_StateMachine.transition(State::Driving);
+            }
+        }
+        else if(state == State::Driving) {
+            if(event == Event::Enter) {
+                m_MoveStopwatch.start();
+            }
+            else if(event == Event::Update) {
+                if(m_MoveStopwatch.elapsed() > m_Config.getMotorCommandInterval()) {
+                    m_StateMachine.transition(State::Testing);
+                }
+            }
+            else if(event == Event::Exit) {
+                m_Motor.tank(0.0f, 0.0f);
             }
         }
         else {
@@ -455,13 +462,11 @@ private:
     Robots::Norbot m_Motor;
 
     // Last time at which a motor command was issued or a snapshot was trained
-    TimePoint m_LastMotorCommandTime;
-    TimePoint m_LastTrainTime;
+    Stopwatch m_MoveStopwatch;
+    Stopwatch m_TrainingStopwatch;
 
     // Time at which testing or training started
-    TimePoint m_RecordingStartTime;
-
-    Milliseconds m_TestDuration;
+    Stopwatch m_RecordingStopwatch;
 
     // Index of test image to write
     size_t m_TestImageIndex;
@@ -475,6 +480,15 @@ private:
 
     // CSV file containing logging
     std::ofstream m_LogFile;
+
+    // Models of relationship between turning time and 
+    // angle turned  used to improve turning accuracy
+    RunningRegression m_TurnLeftModel;
+    RunningRegression m_TurnRightModel;
+    
+    bool m_LastMoveWasTurn;
+    Milliseconds m_LastMoveTime;
+    degree_t m_LastHeadingAngle;
 
     // How many snapshots has memory been trained on
     size_t m_NumSnapshots;
