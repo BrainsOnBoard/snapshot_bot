@@ -42,7 +42,7 @@ namespace MBParamsHOG
     constexpr double postStimuliDurationMs = 40.0;
 
     // Scale applied to convert image data to input currents for PNs
-    constexpr double inputCurrentScale = 1.0;
+    constexpr double inputCurrentScale = 0.85;
 
     // Weight of static synapses between PN and KC populations
     // **NOTE** manually tuend to get approximately 200/20000 KC firing sparsity
