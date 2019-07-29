@@ -128,14 +128,9 @@ void modelDefinition(NNmodel &model)
         0.0);                       // Time of last synaptic tag update
 
     // Create neuron populations
-    auto *pn = model.addNeuronPopulation<LIFExtCurrent>("PN", MBParamsArdin::numPN, pnParams, pnInit);
+    model.addNeuronPopulation<LIFExtCurrent>("PN", MBParamsArdin::numPN, pnParams, pnInit);
     model.addNeuronPopulation<NeuronModels::LIF>("KC", MBParamsArdin::numKC, kcParams, lifInit);
-    auto *en = model.addNeuronPopulation<NeuronModels::LIF>("EN", MBParamsArdin::numEN, enParams, lifInit);
-    
-#ifdef __aarch64__
-    pn->setVarLocation("Iext", VarLocation::HOST_DEVICE_ZERO_COPY);
-    en->setSpikeLocation(VarLocation::HOST_DEVICE_ZERO_COPY);
-#endif
+    model.addNeuronPopulation<NeuronModels::LIF>("EN", MBParamsArdin::numEN, enParams, lifInit);
     
     auto pnToKC = model.addSynapsePopulation<WeightUpdateModels::StaticPulse, PostsynapticModels::ExpCurr>(
         "pnToKC", SynapseMatrixType::SPARSE_GLOBALG, NO_DELAY,
