@@ -120,7 +120,7 @@ public:
                         std::cout << "." << std::flush;
                         auto snapshot = cv::imread(filename.str());
                         if(snapshot.size() != m_Config.getUnwrapRes()) {
-                            std::cout << "WARNING: training on incorrectly sized snapshots - resizing" << std::endl;
+                            LOGW << "training on incorrectly sized snapshots - resizing";
                             cv::resize(snapshot, snapshot, m_Config.getUnwrapRes());
                         }
                         
