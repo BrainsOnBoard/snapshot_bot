@@ -10,7 +10,6 @@
 
 using namespace BoBRobotics;
 
-
 //---------------------------------------------------------------------------
 // Standard LIF model extended to take an additional
 // input current from an extra global variable

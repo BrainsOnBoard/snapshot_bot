@@ -36,7 +36,7 @@ public:
         "$(RefracTime) = $(TauRefrac);\n");
 
     SET_PARAM_NAMES({
-        "C",            // 0 -Membrane capacitance
+        "C",            // 0 - Membrane capacitance
         "TauM",         // 1 - Membrane time constant [ms]
         "Vrest",        // 2 - Resting membrane potential [mV]
         "Vreset",       // 3 - Reset voltage [mV]
@@ -116,7 +116,7 @@ void modelDefinition(NNmodel &model)
         15.0,                       // 0 - Potentiation time constant (ms)
         15.0,                       // 1 - Depression time constant (ms)
         40.0,                       // 2 - Synaptic tag time constant (ms)
-        MBParamsArdin::tauD,             // 3 - Dopamine time constant (ms)
+        MBParamsArdin::tauD,        // 3 - Dopamine time constant (ms)
         -1.0,                       // 4 - Rate of potentiation
         1.0,                        // 5 - Rate of depression
         0.0,                        // 6 - Minimum weight
