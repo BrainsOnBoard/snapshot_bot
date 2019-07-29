@@ -106,7 +106,11 @@ void MBMemoryHOG::beginPresent(const cv::Mat &snapshot) const
 
     // Copy HOG features into external input current
     BOB_ASSERT(m_Features.isContinuous());
-    std::copy_n(reinterpret_cast<float*>(m_Features.data), MBParamsHOG::featureSize, m_IExtPN);
+    const float *featuresBegin = reinterpret_cast<float*>(m_Features.data);
+    std::transform(featuresBegin, featuresBegin + MBParamsHOG::featureSize, m_IExtPN,
+                   [](float x){ return x * MBParamsHOG::inputCurrentScale; });
+
+    //std::copy_n(reinterpret_cast<float*>(m_Features.data), MBParamsHOG::featureSize, m_IExtPN);
     getSLM().pushVarToDevice("PN", "Iext");
 }
 //----------------------------------------------------------------------------
