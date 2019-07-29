@@ -37,14 +37,14 @@ const cv::Mat &ImageInputRaw::processSnapshot(const cv::Mat &snapshot)
 // ImageInputBinary
 //----------------------------------------------------------------------------
 ImageInputBinary::ImageInputBinary(const Config &config)
-:   ImageInput(config), m_TrueBinary(config.shouldUseTrueBinaryImage()), m_SegmentIndices(config.getUnwrapRes(), CV_32SC1),
-    m_SegmentedImage(config.getUnwrapRes().height - 2, config.getUnwrapRes().width - 2, CV_8UC1)
+:   ImageInput(config), m_TrueBinary(config.shouldUseTrueBinaryImage()), 
+    m_SegmentIndices(getOutputSize(), CV_32SC1), m_SegmentedImage(getOutputSize(), CV_8UC1)
 {
     // Read marker image
     // **NOTE** will read 8-bit per channel grayscale
     m_MarkerImage = cv::imread(config.getWatershedMarkerImageFilename(), cv::IMREAD_GRAYSCALE);
     BOB_ASSERT(m_MarkerImage.size() == config.getUnwrapRes());
-
+    std::cout << m_MarkerImage.size() << std::endl;
     // Convert marker image to 32-bit per channel without performing any scaling
     m_MarkerImage.convertTo(m_MarkerImage, CV_32SC1);
 

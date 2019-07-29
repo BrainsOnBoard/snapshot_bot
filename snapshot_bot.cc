@@ -118,8 +118,14 @@ public:
                     // If file exists, load image and train memory on it
                     if(filename.exists()) {
                         std::cout << "." << std::flush;
-                        const auto &processedSnapshot = m_ImageInput->processSnapshot(cv::imread(filename.str()));
-                        //cv::imwrite((m_Config.getOutputPath() / ("processed_" + std::to_string(m_NumSnapshots) + ".png")).str(), processedSnapshot);
+                        auto snapshot = cv::imread(filename.str());
+                        if(snapshot.size() != m_Config.getUnwrapRes()) {
+                            std::cout << "WARNING: training on incorrectly sized snapshots - resizing" << std::endl;
+                            cv::resize(snapshot, snapshot, m_Config.getUnwrapRes());
+                        }
+                        
+                        const auto &processedSnapshot = m_ImageInput->processSnapshot(snapshot);
+                        cv::imwrite((m_Config.getOutputPath() / ("processed_snapshot_" + config.getTestingSuffix() + "_" + std::to_string(m_NumSnapshots) + ".png")).str(), processedSnapshot);
                         m_Memory->train(processedSnapshot);
                     }
                     // Otherwise, stop searching
