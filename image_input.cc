@@ -142,7 +142,7 @@ std::unique_ptr<ImageInput> createImageInput(const Config &config)
         LOGI << "Creating ImageInputHorizon";
         return std::make_unique<ImageInputHorizon>(config);
     }
-    else if(config.shouldUseBinaryImage()) {
+    else if(config.shouldUseBinaryImage() || config.shouldUseTrueBinaryImage()) {
         LOGI << "Creating ImageInputBinary";
         return std::make_unique<ImageInputBinary>(config);
     }
