@@ -100,7 +100,6 @@ private:
 //----------------------------------------------------------------------------
 // ImageInputHorizon
 //----------------------------------------------------------------------------
-//! 
 class ImageInputHorizon : public ImageInputBinary
 {
 public:
@@ -126,6 +125,25 @@ private:
     // Vectors holding the sum and count of horizon heights in each image column
     std::vector<int> m_ColumnHorizonPixelsSum;
     std::vector<int> m_ColumnHorizonPixelsCount;
+};
+
+//----------------------------------------------------------------------------
+// ImageInputThreshold
+//----------------------------------------------------------------------------
+class ImageInputThreshold : public ImageInput
+{
+public:
+    ImageInputThreshold(const Config &config);
+    
+    //----------------------------------------------------------------------------
+    // ImageInput virtuals
+    //----------------------------------------------------------------------------
+    virtual const cv::Mat &processSnapshot(const cv::Mat &snapshot) override;
+
+    
+private:
+    const double m_Threshold;
+    cv::Mat m_Thresholded;
 };
 
 std::unique_ptr<ImageInput> createImageInput(const Config &config);

@@ -38,7 +38,7 @@ const cv::Mat &ImageInputRaw::processSnapshot(const cv::Mat &snapshot)
 //----------------------------------------------------------------------------
 ImageInputBinary::ImageInputBinary(const Config &config)
 :   ImageInput(config), m_TrueBinary(config.shouldUseTrueBinaryImage()), 
-    m_SegmentIndices(getOutputSize(), CV_32SC1), m_SegmentedImage(getOutputSize(), CV_8UC1)
+    m_SegmentIndices(config.getUnwrapRes(), CV_32SC1), m_SegmentedImage(getOutputSize(), CV_8UC1)
 {
     // Read marker image
     // **NOTE** will read 8-bit per channel grayscale
@@ -135,6 +135,25 @@ const cv::Mat &ImageInputHorizon::processSnapshot(const cv::Mat &snapshot)
     return m_HorizonVector;
 }
 
+//----------------------------------------------------------------------------
+// ImageInputThreshold
+//----------------------------------------------------------------------------
+ImageInputThreshold::ImageInputThreshold(const Config &config)
+:   ImageInput(config), m_Threshold(config.getThreshold()), m_Thresholded(config.getUnwrapRes(), CV_8UC1)
+{
+}
+//----------------------------------------------------------------------------
+const cv::Mat &ImageInputThreshold::processSnapshot(const cv::Mat &snapshot)
+{
+    // Convert snapshot to greyscale
+    cv::cvtColor(snapshot, m_Thresholded, cv::COLOR_BGR2GRAY);
+    
+    // Apply threshold
+    cv::threshold(m_Thresholded, m_Thresholded, m_Threshold, 255.0, cv::THRESH_BINARY);
+    
+    return m_Thresholded;
+}
+
 std::unique_ptr<ImageInput> createImageInput(const Config &config)
 {
     // Create image input
@@ -145,6 +164,10 @@ std::unique_ptr<ImageInput> createImageInput(const Config &config)
     else if(config.shouldUseBinaryImage() || config.shouldUseTrueBinaryImage()) {
         LOGI << "Creating ImageInputBinary";
         return std::make_unique<ImageInputBinary>(config);
+    }
+    else if(config.shouldUseThresholdImage()) {
+        LOGI << "Creating ImageInputThreshold";
+        return std::make_unique<ImageInputThreshold>(config);
     }
     else {
         LOGI << "Creating ImageInputRaw";

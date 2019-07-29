@@ -21,8 +21,8 @@ class Config
     using Milliseconds = std::chrono::duration<double, std::milli>;
     
 public:
-    Config() : m_UseHOG(false), m_UseBinaryImage(false), m_UseTrueBinaryImage(false), m_UseHorizonVector(false), m_Train(true), m_UseInfoMax(false), m_UseMBArdin(false), m_UseMBHOG(false),
-        m_SaveTestingDiagnostic(false), m_StreamOutput(false), m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_WatershedMarkerImageFilename("segmentation.png"), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
+    Config() : m_UseHOG(false), m_UseBinaryImage(false), m_UseTrueBinaryImage(false), m_UseHorizonVector(false), m_UseThresholdImage(false), m_Train(true), m_UseInfoMax(false), m_UseMBArdin(false), m_UseMBHOG(false),
+        m_SaveTestingDiagnostic(false), m_StreamOutput(false), m_MaxSnapshotRotateDegrees(180.0), m_UnwrapRes(180, 50), m_WatershedMarkerImageFilename("segmentation.png"), m_Threshold(200.0), m_NumHOGOrientations(8), m_NumHOGPixelsPerCell(10),
         m_JoystickDeadzone(0.25f), m_AutoTrain(false), m_TrainInterval(100.0), m_MotorCommandInterval(500.0), m_MotorTurnCommandInterval(500.0),m_ServerListenPort(BoBRobotics::Net::Connection::DefaultListenPort), m_MoveSpeed(0.25),
         m_TurnThresholds{{units::angle::degree_t(5.0), 0.5f}, {units::angle::degree_t(10.0), 1.0f}}, m_UseViconTracking(false), m_ViconTrackingPort(0), m_ViconTrackingObjectName("norbot"),
         m_UseViconCaptureControl(false), m_ViconCaptureControlPort(0)
@@ -36,6 +36,7 @@ public:
     bool shouldUseBinaryImage() const{ return m_UseBinaryImage; }
     bool shouldUseTrueBinaryImage() const{ return m_UseTrueBinaryImage; }
     bool shouldUseHorizonVector() const{ return m_UseHorizonVector; }
+    bool shouldUseThresholdImage() const{ return m_UseThresholdImage; }
     bool shouldTrain() const{ return m_Train; }
     bool shouldUseInfoMax() const{ return m_UseInfoMax; }
     bool shouldUseMBArdin() const{ return m_UseMBArdin; }
@@ -52,6 +53,8 @@ public:
 
     const std::string &getMaskImageFilename() const{ return m_MaskImageFilename; }
     const std::string &getWatershedMarkerImageFilename() const{ return m_WatershedMarkerImageFilename; }
+    
+    double getThreshold() const{ return m_Threshold; }
     
     int getNumHOGOrientations() const{ return m_NumHOGOrientations; }
     int getNumHOGPixelsPerCell() const{ return m_NumHOGPixelsPerCell; }
@@ -102,6 +105,7 @@ public:
         fs << "shouldUseBinaryImage" << shouldUseBinaryImage();
         fs << "shouldUseTrueBinaryImage" << shouldUseTrueBinaryImage();
         fs << "shouldUseHorizonVector" << shouldUseHorizonVector();
+        fs << "shouldUseThresholdImage" << shouldUseThresholdImage();
         fs << "shouldTrain" << shouldTrain();
         fs << "shouldUseInfoMax" << shouldUseInfoMax();
         fs << "shouldUseMBArdin" << shouldUseMBArdin();
@@ -114,6 +118,7 @@ public:
         fs << "unwrapRes" << getUnwrapRes();
         fs << "maskImageFilename" << getMaskImageFilename();
         fs << "watershedMarkerImageFilename" << getWatershedMarkerImageFilename();
+        fs << "threshold" << getThreshold();
         fs << "numHOGOrientations" << getNumHOGOrientations();
         fs << "numHOGPixelsPerCell" << getNumHOGPixelsPerCell();
         fs << "joystickDeadzone" << getJoystickDeadzone();
@@ -155,6 +160,7 @@ public:
         cv::read(node["shouldUseBinaryImage"], m_UseBinaryImage, m_UseBinaryImage);
         cv::read(node["shouldUseTrueBinaryImage"], m_UseTrueBinaryImage, m_UseTrueBinaryImage);
         cv::read(node["shouldUseHorizonVector"], m_UseHorizonVector, m_UseHorizonVector);
+        cv::read(node["shouldUseThresholdImage"], m_UseThresholdImage, m_UseThresholdImage);
         cv::read(node["shouldTrain"], m_Train, m_Train);
         cv::read(node["shouldUseInfoMax"], m_UseInfoMax, m_UseInfoMax);
         cv::read(node["shouldUseMBArdin"], m_UseMBArdin, m_UseMBArdin);
@@ -185,6 +191,7 @@ public:
         cv::read(node["watershedMarkerImageFilename"], watershedMarkerImageFilename, m_WatershedMarkerImageFilename);
         m_WatershedMarkerImageFilename = (std::string)watershedMarkerImageFilename;
         
+        cv::read(node["threshold"], m_Threshold, m_Threshold);
         cv::read(node["numHOGOrientations"], m_NumHOGOrientations, m_NumHOGOrientations);
         cv::read(node["numHOGPixelsPerCell"], m_NumHOGPixelsPerCell, m_NumHOGPixelsPerCell);
         cv::read(node["joystickDeadzone"], m_JoystickDeadzone, m_JoystickDeadzone);
@@ -252,6 +259,8 @@ private:
 
     bool m_UseHorizonVector;
     
+    bool m_UseThresholdImage;
+    
     // Should we start in training mode or use existing data?
     bool m_Train;
 
@@ -287,6 +296,9 @@ private:
 
     // Filename of image used to provide markers to watershed segmentation algorithm;
     std::string m_WatershedMarkerImageFilename;
+    
+    //! Threshold used when thresholding input images
+    double m_Threshold;
     
     // HOG configuration
     int m_NumHOGOrientations;
