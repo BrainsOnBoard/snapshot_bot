@@ -6,7 +6,7 @@
 namespace MBParamsHOG
 {
     // Should we measure timing
-    constexpr bool timing = true;
+    constexpr bool timing = false;
     
     constexpr double timestepMs = 1.0;
 
@@ -46,7 +46,7 @@ namespace MBParamsHOG
 
     // Weight of static synapses between PN and KC populations
     // **NOTE** manually tuend to get approximately 200/20000 KC firing sparsity
-    constexpr double pnToKCWeight = 0.34;//0.243;
+    constexpr double pnToKCWeight = 0.243;
 
     // Initial/maximum weight of plastic synapses between KC and EN populations
     // **NOTE** note manually tuned to get 15-20 spikes for a novel image
@@ -61,17 +61,17 @@ namespace MBParamsHOG
     // Time constant of dopamine
     constexpr double tauD = 20.0;
 
-    constexpr double ggnToKCVMid = -40.0;
+    constexpr double ggnToKCVMid = -54.1;
 
-    constexpr double ggnToKCVslope = 2.0;
+    constexpr double ggnToKCVslope = 1.0;
 
-    constexpr double ggnToKCVthresh = -50.0;
+    constexpr double ggnToKCVthresh = -60.0;
 
     constexpr double pnVthresh = -50.0;
 
     // Scale of each dopamine 'spike'
     // **NOTE** manually tuned for one-shot learning - also close to BA/phi
-    constexpr double dopamineStrength = 0.03;
+    constexpr double dopamineStrength = 0.3;
 
     // How many PN neurons are connected to each KC
     constexpr unsigned int numPNSynapsesPerKC = 10;
